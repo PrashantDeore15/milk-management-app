@@ -116,6 +116,66 @@ class _DailyMilkEntryScreenState
     await _loadData();
   }
 
+  Future<void> _showMoreProducts(CustomerModel customer) async {
+    final existing = await DatabaseHelper.instance.getCustomerDailyProducts(customer.id, _dateKey);
+    if (!mounted) return;
+    const products = <(String, String, double, String)>[
+      ('Cow Milk', 'cow_milk', 0, 'L'), ('Buffalo Milk', 'buffalo_milk', 0, 'L'),
+      ('Fresh Milk', 'fresh_milk', 0, 'L'), ('Tak 500 ml', 'tak_500ml', 22, 'pack'),
+      ('Dahi 100 gm', 'dahi_100', 16, 'pack'), ('Dahi 200 gm', 'dahi_200', 32, 'pack'),
+      ('Dahi 500 gm', 'dahi_500', 43, 'pack'), ('Dahi 1 kg', 'dahi_1kg', 130, 'pack'),
+    ];
+    final savedByKey = {for (final row in existing) row['product_name'] as String: row};
+    final quantities = <String, TextEditingController>{};
+    for (final (label, key, _, unit) in products) {
+      final row = savedByKey[key];
+      quantities[key] = TextEditingController(text: row == null ? '' : (row['quantity'] as num).toString());
+    }
+    final selected = <String>{for (final item in products) if (savedByKey.containsKey(item.$2)) item.$2};
+    String? selectedDahi = ['dahi_100', 'dahi_200', 'dahi_500', 'dahi_1kg'].firstWhere((key) => selected.contains(key), orElse: () => '');
+    if (selectedDahi.isEmpty) selectedDahi = null;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(builder: (context, refreshDialog) => AlertDialog(
+        title: Text('Extra items · ${customer.name}'),
+        content: SizedBox(width: 440, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ...products.where((p) => !p.$2.startsWith('dahi_')).map((product) {
+            final (label, key, _, unit) = product;
+            return Column(children: [
+              CheckboxListTile(dense: true, contentPadding: EdgeInsets.zero, title: Text(label), value: selected.contains(key), onChanged: (checked) => refreshDialog(() { if (checked == true) { selected.add(key); } else { selected.remove(key); } })),
+              if (selected.contains(key)) Padding(padding: const EdgeInsets.only(left: 16, bottom: 8), child: TextField(controller: quantities[key], autofocus: false, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(isDense: true, labelText: 'Quantity', suffixText: unit))),
+            ]);
+          }),
+          const Divider(),
+          const Align(alignment: Alignment.centerLeft, child: Text('Dahi size', style: TextStyle(fontWeight: FontWeight.w600))),
+          ...products.where((p) => p.$2.startsWith('dahi_')).map((product) {
+            final (label, key, _, unit) = product;
+            return RadioListTile<String>(dense: true, contentPadding: EdgeInsets.zero, title: Text(label), value: key, groupValue: selectedDahi, onChanged: (value) => refreshDialog(() => selectedDahi = value));
+          }),
+          if (selectedDahi != null) TextField(controller: quantities[selectedDahi], keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(isDense: true, labelText: 'Dahi quantity', suffixText: 'pack')),
+        ]))),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save items'))],
+      )),
+    );
+    if (saved == true) {
+      final rows = <Map<String, Object?>>[];
+      for (final (label, key, listedPrice, unit) in products) {
+        if (key.startsWith('dahi_') ? key != selectedDahi : !selected.contains(key)) continue;
+        final qty = double.tryParse(quantities[key]!.text) ?? 0;
+        final price = listedPrice == 0 ? customer.rate : listedPrice;
+        if (qty <= 0 || !qty.isFinite) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Enter a valid quantity for $label.')));
+          for (final c in quantities.values) { c.dispose(); }
+          return;
+        }
+        rows.add({'id': const Uuid().v4(), 'customer_id': customer.id, 'entry_date': _dateKey, 'product_name': key, 'quantity': qty, 'unit': unit, 'unit_price': price});
+      }
+      await DatabaseHelper.instance.saveCustomerDailyProducts(rows, customer.id, _dateKey);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Extra items saved for this customer.')));
+    }
+    for (final c in quantities.values) { c.dispose(); }
+  }
+
   double get _totalMilk {
     double total = 0;
 
@@ -328,6 +388,10 @@ class _DailyMilkEntryScreenState
                                   ),
                                 ],
                               ),
+                            ),
+                            TextButton(
+                              onPressed: () => _showMoreProducts(customer),
+                              child: const Text('More'),
                             ),
                             FilledButton.tonal(
                               onPressed: () {

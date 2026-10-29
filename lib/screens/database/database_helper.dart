@@ -18,7 +18,7 @@ class DatabaseHelper {
 
     _database = await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -107,6 +107,8 @@ class DatabaseHelper {
       )
     ''');
 
+    await _createCustomerProducts(db);
+
     await _createMilkRates(db);
 
     await db.execute(
@@ -128,6 +130,44 @@ class DatabaseHelper {
             status = CASE WHEN final_balance + 60 > 0 THEN 'unpaid' ELSE 'paid' END
       """);
     }
+    if (oldVersion < 4) await _createCustomerProducts(db);
+  }
+
+  Future<void> _createCustomerProducts(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE customer_daily_products (
+        id TEXT PRIMARY KEY,
+        customer_id TEXT NOT NULL,
+        entry_date TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit TEXT NOT NULL,
+        unit_price REAL NOT NULL,
+        FOREIGN KEY (customer_id) REFERENCES customers (id),
+        UNIQUE (customer_id, entry_date, product_name)
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_customer_products_date ON customer_daily_products(entry_date, customer_id)');
+  }
+
+  Future<List<Map<String, Object?>>> getCustomerDailyProducts(String customerId, String date) async {
+    final db = await database;
+    return db.query('customer_daily_products', where: 'customer_id = ? AND entry_date = ?', whereArgs: [customerId, date], orderBy: 'product_name');
+  }
+
+  Future<void> saveCustomerDailyProduct(Map<String, Object?> product) async {
+    final db = await database;
+    await db.insert('customer_daily_products', product, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> saveCustomerDailyProducts(List<Map<String, Object?>> products, String customerId, String date) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('customer_daily_products', where: 'customer_id = ? AND entry_date = ?', whereArgs: [customerId, date]);
+      for (final product in products) {
+        await txn.insert('customer_daily_products', product, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
   }
 
   Future<void> _createMilkRates(DatabaseExecutor db) async {

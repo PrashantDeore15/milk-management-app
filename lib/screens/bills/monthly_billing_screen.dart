@@ -105,6 +105,10 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
             FROM milk_entries
             WHERE customer_id = ? AND entry_date >= ? AND entry_date < ? AND delivered = 1
           ''', [id, start, end]);
+          final extras = await txn.rawQuery('''
+            SELECT COALESCE(SUM(quantity * unit_price), 0) AS amount
+            FROM customer_daily_products WHERE customer_id = ? AND entry_date >= ? AND entry_date < ?
+          ''', [id, start, end]);
           final previous = await txn.query(
             'bills', columns: ['final_balance'],
             where: 'customer_id = ? AND billing_month < ?',
@@ -115,7 +119,7 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
             SELECT COALESCE(SUM(amount), 0) AS amount FROM payments
             WHERE customer_id = ? AND payment_date >= ? AND payment_date < ?
           ''', [id, start, end]);
-          final milkAmount = (milk.first['amount'] as num).toDouble();
+          final milkAmount = (milk.first['amount'] as num).toDouble() + (extras.first['amount'] as num).toDouble();
           final previousDue = previous.isEmpty ? 0.0 : (previous.first['final_balance'] as num).toDouble();
           final payments = (payment.first['amount'] as num).toDouble();
           final rawBalance = milkAmount + _serviceCharge + previousDue - payments;
@@ -189,16 +193,6 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Monthly Billing'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh bills',
-            onPressed: _loading ? null : _generateBills,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
       body: Column(
         children: [
           Padding(

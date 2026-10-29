@@ -174,9 +174,6 @@ class _PaymentCollectionScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Payment Collection'),
-      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _customers.isEmpty

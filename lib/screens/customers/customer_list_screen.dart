@@ -154,16 +154,6 @@ class _CustomerListScreenState
     final customers = _filteredCustomers;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Customers'),
-        actions: [
-          IconButton(
-            onPressed: _loadCustomers,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
-          ),
-        ],
-      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addCustomer,
         backgroundColor: AppTheme.primaryColor,

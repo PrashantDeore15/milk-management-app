@@ -22,6 +22,7 @@ class _BillCustomerDetailScreenState extends State<BillCustomerDetailScreen> {
   bool _loading = true;
   bool _sharing = false;
   List<Map<String, Object?>> _entries = [];
+  List<Map<String, Object?>> _extraEntries = [];
   late Map<String, Object?> _currentBill;
 
   String get _month => widget.bill['billing_month']?.toString() ?? '';
@@ -48,6 +49,7 @@ class _BillCustomerDetailScreenState extends State<BillCustomerDetailScreen> {
         whereArgs: [widget.bill['customer_id'], start, end],
         orderBy: 'entry_date DESC',
       );
+      final extraRows = await db.query('customer_daily_products', where: 'customer_id = ? AND entry_date >= ? AND entry_date < ?', whereArgs: [widget.bill['customer_id'], start, end], orderBy: 'entry_date DESC');
       final amountDueToMonth = DateFormat('yyyy-MM-dd').format(DateTime(year, month + 1));
       final paymentRows = await db.rawQuery('''
         SELECT COALESCE(SUM(amount), 0) AS total
@@ -57,7 +59,7 @@ class _BillCustomerDetailScreenState extends State<BillCustomerDetailScreen> {
       final milkAmount = rows.fold<double>(
         0,
         (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['rate'] as num).toDouble(),
-      );
+      ) + extraRows.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['unit_price'] as num).toDouble());
       final serviceCharge = (_currentBill['service_charge'] as num?)?.toDouble() ?? 60;
       final previousDue = (_currentBill['previous_due'] as num?)?.toDouble() ?? 0;
       final paymentsReceived = (paymentRows.first['total'] as num).toDouble();
@@ -86,6 +88,7 @@ class _BillCustomerDetailScreenState extends State<BillCustomerDetailScreen> {
       if (!mounted) return;
       setState(() {
         _entries = rows;
+        _extraEntries = extraRows;
         _currentBill = updatedBill;
         _loading = false;
       });
@@ -187,6 +190,18 @@ class _BillCustomerDetailScreenState extends State<BillCustomerDetailScreen> {
                       ),
                     );
                   }),
+                ..._extraEntries.map((entry) {
+                  final date = DateTime.tryParse(entry['entry_date'] as String);
+                  final label = (entry['product_name'] as String).replaceAll('_', ' ');
+                  final qty = (entry['quantity'] as num).toDouble();
+                  final price = (entry['unit_price'] as num).toDouble();
+                  return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 8), child: ListTile(
+                    leading: const CircleAvatar(child: Icon(Icons.shopping_basket_outlined)),
+                    title: Text('${label[0].toUpperCase()}${label.substring(1)} · ${date == null ? entry['entry_date'] : DateFormat('EEE, dd MMM').format(date)}'),
+                    subtitle: Text('$qty ${entry['unit']} × ${_money(price)}'),
+                    trailing: Text(_money(qty * price)),
+                  ));
+                }),
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 52,

@@ -17,6 +17,7 @@ class CustomerMonthlySummaryScreen extends StatefulWidget {
 class _CustomerMonthlySummaryScreenState extends State<CustomerMonthlySummaryScreen> {
   bool _loading = true;
   List<Map<String, Object?>> _entries = [];
+  List<Map<String, Object?>> _products = [];
 
   @override
   void initState() {
@@ -35,15 +36,17 @@ class _CustomerMonthlySummaryScreenState extends State<CustomerMonthlySummaryScr
       whereArgs: [widget.customer.id, start, end],
       orderBy: 'entry_date DESC',
     );
+    final products = await db.query('customer_daily_products', where: 'customer_id = ? AND entry_date >= ? AND entry_date <= ?', whereArgs: [widget.customer.id, start, end], orderBy: 'entry_date DESC');
     if (!mounted) return;
     setState(() {
       _entries = entries;
+      _products = products;
       _loading = false;
     });
   }
 
   double get _totalLiters => _entries.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble());
-  double get _bill => _entries.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['rate'] as num).toDouble());
+  double get _bill => _entries.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['rate'] as num).toDouble()) + _products.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['unit_price'] as num).toDouble());
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +124,17 @@ class _CustomerMonthlySummaryScreenState extends State<CustomerMonthlySummaryScr
                         ),
                       );
                     }),
+                  ..._products.map((entry) {
+                    final qty = (entry['quantity'] as num).toDouble();
+                    final price = (entry['unit_price'] as num).toDouble();
+                    final raw = (entry['product_name'] as String).replaceAll('_', ' ');
+                    final label = '${raw[0].toUpperCase()}${raw.substring(1)}';
+                    return Card(child: ListTile(
+                      title: Text('$label · ${entry['entry_date']}'),
+                      subtitle: Text('$qty ${entry['unit']} × ₹${price.toStringAsFixed(2)}'),
+                      trailing: Text(NumberFormat.currency(locale: 'en_IN', symbol: '₹').format(qty * price)),
+                    ));
+                  }),
                 ],
               ),
             ),
