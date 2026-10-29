@@ -1,0 +1,6 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="108dp" android:height="108dp" android:drawable="@color/atul_icon_background" />
+    <item android:width="108dp" android:height="54dp" android:gravity="center">
+        <bitmap android:src="@drawable/atul_logo" android:gravity="fill" />
+    </item>
+</layer-list>
