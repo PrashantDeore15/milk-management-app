@@ -1,11 +1,12 @@
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../models/customer_models.dart';
-import '../database/database_helper.dart';
+import '../../services/user_session.dart';
 
 
 class AddCustomerScreen extends StatefulWidget {
@@ -60,11 +61,48 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   }
 
   Future<void> _loadMilkRates() async {
-    final rates = await DatabaseHelper.instance.getMilkRates();
+    final rates = <String, double>{
+      'cow': 60,
+      'standard': 65,
+      'full_cream': 70,
+    };
+
+    try {
+      if (UserSession.uid == null || !UserSession.isActive) {
+        throw StateError('No active user session.');
+      }
+
+      // Rates are stored per user at users/{uid}/settings/milk_rates.
+      if (UserSession.can('settings', 'view')) {
+        final snapshot = await UserSession.collection('settings')
+            .doc('milk_rates')
+            .get();
+
+        final savedRates = snapshot.data()?['rates'];
+        if (savedRates is Map) {
+          for (final key in rates.keys) {
+            final value = savedRates[key];
+            if (value is num && value > 0) {
+              rates[key] = value.toDouble();
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Keep defaults available, but report unexpected Firestore failures.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Milk rates load झाले नाहीत: $error')),
+        );
+      }
+    }
+
     if (!mounted) return;
     setState(() {
       _milkRates = rates;
-      _rate.text = (_milkRates[_milkType] ?? 60).toStringAsFixed(2);
+      if (!isEditing) {
+        _rate.text = (_milkRates[_milkType] ?? 60).toStringAsFixed(2);
+      }
     });
   }
 
@@ -121,35 +159,57 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   Future<void> _saveCustomer() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final permission = isEditing ? 'edit' : 'create';
+    if (!UserSession.can('customers', permission)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isEditing
+                ? 'तुम्हाला Customer Edit करण्याची परवानगी नाही.'
+                : 'तुम्हाला Customer Add करण्याची परवानगी नाही.',
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
 
     try {
+      if (UserSession.uid == null || !UserSession.isActive) {
+        throw StateError('No active user session.');
+      }
+
       final oldCustomer = widget.customer;
       final now = DateTime.now();
-
       final customer = CustomerModel(
         id: oldCustomer?.id ?? const Uuid().v4(),
         name: _name.text.trim(),
         mobile: _mobile.text.trim(),
         address: _address.text.trim(),
         milkType: _milkType,
-        rate: _milkRates[_milkType] ?? double.parse(_rate.text.trim()),
+        rate: double.parse(_rate.text.trim()),
         morningQuantity: double.parse(_quantity.text.trim()),
         startDate: DateFormat('yyyy-MM-dd').format(_startDate),
         isActive: oldCustomer?.isActive ?? true,
-        createdAt: oldCustomer?.createdAt ??
-            now.toIso8601String(),
+        createdAt: oldCustomer?.createdAt ?? now.toIso8601String(),
       );
 
+      final customerRef = UserSession.collection('customers')
+          .doc(customer.id);
+
       if (oldCustomer == null) {
-        await DatabaseHelper.instance.addCustomer(
-          customer.toMap(),
-        );
+        await customerRef.set({
+          ...customer.toFirestore(),
+          'createdBy': UserSession.uid,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       } else {
-        await DatabaseHelper.instance.updateCustomer(
-          customer.id,
-          customer.toMap(),
-        );
+        await customerRef.update({
+          ...customer.toFirestore(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       }
 
       if (!mounted) return;
@@ -163,18 +223,23 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           ),
         ),
       );
-
       Navigator.pop(context, true);
-    } catch (e) {
+    } on FirebaseException catch (error) {
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('सेव्ह करताना त्रुटी: $e')),
+        SnackBar(
+          content: Text(
+            'Firestore त्रुटी: ${error.message ?? error.code}',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('सेव्ह करताना त्रुटी: $error')),
       );
     } finally {
-      if (mounted) {
-        setState(() => _saving = false);
-      }
+      if (mounted) setState(() => _saving = false);
     }
   }
 

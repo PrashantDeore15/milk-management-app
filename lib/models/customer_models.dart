@@ -24,6 +24,22 @@ class CustomerModel {
     required this.createdAt,
   });
 
+  // Convert model to a map for Firestore.
+  Map<String, dynamic> toFirestore() {
+    return {
+      'name': name,
+      'mobile': mobile,
+      'address': address,
+      'milk_type': milkType,
+      'rate': rate,
+      'morning_quantity': morningQuantity,
+      'start_date': startDate,
+      'is_active': isActive,
+      'created_at': createdAt,
+    };
+  }
+
+  // Keep this method for compatibility with existing SQLite code.
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -40,18 +56,33 @@ class CustomerModel {
   }
 
   factory CustomerModel.fromMap(Map<String, Object?> map) {
+    final activeValue = map['is_active'];
+    final createdValue = map['created_at'];
+
     return CustomerModel(
-      id: map['id'] as String,
-      name: map['name'] as String,
-      mobile: map['mobile'] as String,
-      address: (map['address'] as String?) ?? '',
-      milkType: map['milk_type'] as String,
-      rate: (map['rate'] as num).toDouble(),
+      id: map['id']?.toString() ?? '',
+      name: map['name']?.toString() ?? '',
+      mobile: map['mobile']?.toString() ?? '',
+      address: map['address']?.toString() ?? '',
+      milkType: map['milk_type']?.toString() ?? 'cow',
+      rate: (map['rate'] as num?)?.toDouble() ?? 0.0,
       morningQuantity:
-      (map['morning_quantity'] as num).toDouble(),
-      startDate: map['start_date'] as String,
-      isActive: (map['is_active'] as int) == 1,
-      createdAt: map['created_at'] as String,
+      (map['morning_quantity'] as num?)?.toDouble() ?? 0.0,
+      startDate: map['start_date']?.toString() ?? '',
+      isActive: activeValue == true ||
+          activeValue == 1 ||
+          activeValue == '1',
+      createdAt: createdValue?.toString() ?? '',
     );
+  }
+
+  factory CustomerModel.fromFirestore(
+      String documentId,
+      Map<String, dynamic> data,
+      ) {
+    return CustomerModel.fromMap({
+      ...data,
+      'id': documentId,
+    });
   }
 }

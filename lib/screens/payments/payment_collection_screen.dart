@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../services/customer_cache_service.dart';
 import '../database/database_helper.dart';
 
 class PaymentCollectionScreen extends StatefulWidget {
@@ -47,6 +48,7 @@ class _PaymentCollectionScreenState
 
   Future<void> _loadCustomers() async {
     try {
+      await CustomerCacheService.refresh();
       final customers =
       await DatabaseHelper.instance.getCustomers();
 

@@ -98,6 +98,8 @@ class BillPdfService {
     required String businessAddress,
     String upiId = '',
     String payeeName = '',
+    bool showDailyDeliveryDetails = true,
+    String invoiceTitle = 'MONTHLY MILK BILL',
   }) async {
     final regularFont = await _loadRegularFont();
     final boldFont = await _loadBoldFont();
@@ -308,7 +310,7 @@ class BillPdfService {
               children: [
                 pw.Expanded(
                   child: pw.Text(
-                    'MONTHLY MILK BILL',
+                    invoiceTitle,
                     style: pw.TextStyle(
                       fontSize: 16,
                       fontWeight: pw.FontWeight.bold,
@@ -361,6 +363,7 @@ class BillPdfService {
           ),
           pw.SizedBox(height: 14),
 
+          if (showDailyDeliveryDetails) ...[
           _sectionTitle('DAILY DELIVERY DETAILS'),
           if (dailyRows.isEmpty)
             pw.Container(
@@ -445,6 +448,7 @@ class BillPdfService {
             ),
           ),
           pw.SizedBox(height: 14),
+          ],
 
           _sectionTitle('BILL SUMMARY'),
           pw.Table(
@@ -454,6 +458,10 @@ class BillPdfService {
             },
             border: pw.TableBorder.all(color: _line, width: 0.5),
             children: [
+              if (bill['total_milk_quantity'] != null)
+                _summaryRow('Total Milk', '${_number(bill['total_milk_quantity']).toStringAsFixed(2)} L'),
+              if (bill['milk_rate'] != null)
+                _summaryRow('Milk Price / L', _money(bill['milk_rate'])),
               _summaryRow('Milk Charges', _money(milkAmount)),
               _summaryRow('Monthly Service Charge', _money(serviceCharge)),
               _summaryRow('Previous Due', _money(previousDue)),

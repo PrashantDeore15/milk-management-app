@@ -1,7 +1,11 @@
 
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
+import '../../services/user_session.dart';
 import '../admin/admin_dashboard.dart';
+import '../auth/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,15 +21,34 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
 
-    _timer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
+    _timer = Timer(const Duration(seconds: 2), _openNextScreen);
+  }
 
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const AdminDashboard(),
-        ),
-      );
-    });
+
+  Future<void> _openNextScreen() async {
+    Widget destination = const LoginScreen();
+
+    try {
+      if (FirebaseAuth.instance.currentUser != null) {
+        final validProfile = await UserSession.load();
+        if (validProfile) {
+          destination = const AdminDashboard();
+        } else {
+          await FirebaseAuth.instance.signOut();
+          UserSession.clear();
+        }
+      }
+    } catch (_) {
+      // If profile verification fails, return to login safely.
+      await FirebaseAuth.instance.signOut();
+      UserSession.clear();
+    }
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => destination),
+    );
   }
 
   @override

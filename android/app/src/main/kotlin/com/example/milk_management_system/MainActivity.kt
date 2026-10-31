@@ -1,4 +1,4 @@
-package com.example.milk_management_system
+package app.milk_management_system
 
 import io.flutter.embedding.android.FlutterActivity
 

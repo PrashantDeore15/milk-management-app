@@ -217,6 +217,26 @@ class DatabaseHelper {
     );
   }
 
+  // Refresh the local customer cache from Firestore while preserving milk
+  // entries and other customer history stored in SQLite.
+  Future<void> syncCustomers(List<Map<String, Object?>> customers) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final customer in customers) {
+        final id = customer['id'];
+        final updated = await txn.update(
+          'customers',
+          customer,
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        if (updated == 0) {
+          await txn.insert('customers', customer);
+        }
+      }
+    });
+  }
+
   // Get all customers, including inactive customers.
   Future<List<Map<String, Object?>>> getCustomers({
     bool activeOnly = true,

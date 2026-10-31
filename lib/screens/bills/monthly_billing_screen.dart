@@ -4,6 +4,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../services/bill_pdf_service.dart';
+import '../../services/customer_cache_service.dart';
+import '../../services/user_session.dart';
 import '../database/database_helper.dart';
 import 'bill_customer_detail_screen.dart';
 
@@ -93,6 +95,7 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
     if (_loading) return;
     setState(() => _loading = true);
     try {
+      await CustomerCacheService.refresh();
       final db = await DatabaseHelper.instance.database;
       final start = DateFormat('yyyy-MM-dd').format(DateTime(_month.year, _month.month));
       final end = DateFormat('yyyy-MM-dd').format(DateTime(_month.year, _month.month + 1));
@@ -174,12 +177,77 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
         businessPhone: '7030009085',
         businessAddress: 'Nashik',
         upiId: 'prashantsdeore15-1@oksbi',
-        payeeName: 'Atul Milk',
+        payeeName: 'Prashant Deore',
       );
     } catch (error) {
       _message('Could not share bill PDF: $error');
     } finally {
       if (mounted) setState(() => _sharing = false);
+    }
+  }
+
+  Future<void> _createCustomBill() async {
+    await CustomerCacheService.refresh();
+    final customerRows = await DatabaseHelper.instance.getCustomers();
+    final milkRates = await DatabaseHelper.instance.getMilkRates();
+    // Milk Rates are saved to the user's Firestore settings. The local SQLite
+    // table can still contain the installation defaults, so use the saved
+    // rates whenever they are available.
+    if (UserSession.isActive && UserSession.can('settings', 'view')) {
+      try {
+        final snapshot = await UserSession.collection('settings').doc('milk_rates').get();
+        final savedRates = snapshot.data()?['rates'];
+        if (savedRates is Map) {
+          for (final type in const ['cow', 'standard', 'full_cream']) {
+            final value = savedRates[type];
+            if (value is num && value > 0) milkRates[type] = value.toDouble();
+          }
+        }
+      } catch (_) {
+        // Keep the locally saved rates available if Firestore is offline.
+      }
+    }
+    if (!mounted) return;
+    if (customerRows.isEmpty) {
+      _message('Add a customer before creating a bill.');
+      return;
+    }
+
+    final selectedValues = await showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (_) => _CustomBillDialog(customers: customerRows, milkRates: milkRates),
+    );
+    if (selectedValues == null || !mounted) return;
+
+    final customer = customerRows.firstWhere((row) => row['id'] == selectedValues!['customer_id']);
+    final now = DateTime.now();
+    final bill = <String, Object?>{
+      'id': 'CUSTOM-${DateFormat('yyyyMMdd-HHmm').format(now)}',
+      'billing_month': _monthKey,
+      'milk_amount': selectedValues['milk_amount'],
+      'milk_rate': selectedValues['rate'],
+      'total_milk_quantity': selectedValues['quantity'],
+      'service_charge': selectedValues['service'],
+      'previous_due': selectedValues['previous_due'],
+      'payments_received': 0,
+      'final_balance': selectedValues['total'],
+      'status': 'unpaid',
+    };
+    try {
+      await BillPdfService.generateAndShare(
+        customer: customer,
+        bill: bill,
+        entries: const [],
+        businessName: 'Atul Milk',
+        businessPhone: '7030009085',
+        businessAddress: 'Nashik',
+        upiId: 'prashantsdeore15-1@oksbi',
+        payeeName: 'Atul Milk',
+        showDailyDeliveryDetails: false,
+        invoiceTitle: 'CUSTOM MILK BILL',
+      );
+    } catch (error) {
+      _message('Could not create custom bill PDF: $error');
     }
   }
 
@@ -193,6 +261,12 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'monthly-billing-custom-bill',
+        onPressed: _sharing ? null : _createCustomBill,
+        icon: const Icon(Icons.post_add),
+        label: const Text('Custom bill'),
+      ),
       body: Column(
         children: [
           Padding(
@@ -282,4 +356,190 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
       ]),
     );
   }
+}
+
+class _CustomBillDialog extends StatefulWidget {
+  final List<Map<String, Object?>> customers;
+  final Map<String, double> milkRates;
+
+  const _CustomBillDialog({required this.customers, required this.milkRates});
+
+  @override
+  State<_CustomBillDialog> createState() => _CustomBillDialogState();
+}
+
+class _CustomBillDialogState extends State<_CustomBillDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _quantity = TextEditingController();
+  final _rate = TextEditingController();
+  final _service = TextEditingController(text: '60');
+  final _previousDue = TextEditingController(text: '0');
+  late String _customerId;
+  late String _milkType;
+
+  static const _types = <String, String>{
+    'cow': 'Cow milk',
+    'standard': 'Standard milk',
+    'full_cream': 'Full cream milk',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    final customer = widget.customers.first;
+    _customerId = customer['id'].toString();
+    final type = customer['milk_type']?.toString() ?? 'cow';
+    _milkType = widget.milkRates.containsKey(type) ? type : 'cow';
+    _rate.text = (widget.milkRates[_milkType] ?? 0).toStringAsFixed(2);
+    for (final controller in [_quantity, _rate, _service, _previousDue]) {
+      controller.addListener(_refresh);
+    }
+  }
+
+  void _refresh() { if (mounted) setState(() {}); }
+
+  @override
+  void dispose() {
+    _quantity.dispose();
+    _rate.dispose();
+    _service.dispose();
+    _previousDue.dispose();
+    super.dispose();
+  }
+
+  double _value(TextEditingController controller) => double.tryParse(controller.text.trim()) ?? 0;
+
+  String? _validate(String? value) {
+    final amount = double.tryParse(value?.trim() ?? '');
+    return amount == null || !amount.isFinite || amount < 0 ? 'Enter a valid amount' : null;
+  }
+
+  Widget _numberField(TextEditingController controller, String label, {String? suffix}) => TextFormField(
+    controller: controller,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(labelText: label, suffixText: suffix),
+    validator: _validate,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final milkAmount = _value(_quantity) * _value(_rate);
+    final total = milkAmount + _value(_service) + _value(_previousDue);
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 560, maxHeight: MediaQuery.sizeOf(context).height * .9),
+        child: Column(children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(22, 20, 14, 20),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(colors: [Color(0xFF087E8B), Color(0xFF35B8A8)]),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Row(children: [
+              const CircleAvatar(backgroundColor: Colors.white24, child: Icon(Icons.receipt_long, color: Colors.white)),
+              const SizedBox(width: 14),
+              const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Create custom bill', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                SizedBox(height: 3), Text('Enter milk details and review the total', style: TextStyle(color: Colors.white70)),
+              ])),
+              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close, color: Colors.white)),
+            ]),
+          ),
+          Expanded(child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 16),
+            child: Form(key: _formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              DropdownButtonFormField<String>(
+                value: _customerId,
+                decoration: const InputDecoration(labelText: 'Customer', prefixIcon: Icon(Icons.person_outline)),
+                items: widget.customers.map((customer) => DropdownMenuItem(
+                  value: customer['id'].toString(),
+                  child: Text(customer['name']?.toString() ?? 'Customer'),
+                )).toList(),
+                onChanged: (id) {
+                  if (id == null) return;
+                  final customer = widget.customers.firstWhere((item) => item['id'].toString() == id);
+                  final type = customer['milk_type']?.toString() ?? 'cow';
+                  setState(() {
+                    _customerId = id;
+                    _milkType = widget.milkRates.containsKey(type) ? type : 'cow';
+                    _rate.text = (widget.milkRates[_milkType] ?? 0).toStringAsFixed(2);
+                  });
+                },
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                value: _milkType,
+                decoration: const InputDecoration(labelText: 'Milk type', prefixIcon: Icon(Icons.water_drop_outlined)),
+                items: _types.entries.map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value))).toList(),
+                onChanged: (type) {
+                  if (type == null) return;
+                  setState(() {
+                    _milkType = type;
+                    _rate.text = (widget.milkRates[type] ?? 0).toStringAsFixed(2);
+                  });
+                },
+              ),
+              const SizedBox(height: 14),
+              Row(children: [
+                Expanded(child: _numberField(_quantity, 'Milk quantity', suffix: 'L')),
+                const SizedBox(width: 12),
+                Expanded(child: _numberField(_rate, 'Price per litre', suffix: '₹/L')),
+              ]),
+              const SizedBox(height: 14),
+              Row(children: [
+                Expanded(child: _numberField(_service, 'Service charge', suffix: '₹')),
+                const SizedBox(width: 12),
+                Expanded(child: _numberField(_previousDue, 'Previous due', suffix: '₹')),
+              ]),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: const Color(0xFFEAF7F5), borderRadius: BorderRadius.circular(16)),
+                child: Column(children: [
+                  _totalRow('Milk amount', '${milkAmount.toStringAsFixed(2)}'),
+                  const SizedBox(height: 7),
+                  _totalRow('Service + previous due', '${(_value(_service) + _value(_previousDue)).toStringAsFixed(2)}'),
+                  const Divider(height: 20),
+                  _totalRow('Total bill', '₹${total.toStringAsFixed(2)}', bold: true),
+                ]),
+              ),
+            ])),
+          )),
+          Padding(padding: const EdgeInsets.fromLTRB(20, 10, 20, 18), child: Row(children: [
+            Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))),
+            const SizedBox(width: 12),
+            Expanded(flex: 2, child: FilledButton.icon(
+              onPressed: () {
+                if (!_formKey.currentState!.validate()) return;
+                final qty = _value(_quantity);
+                final rate = _value(_rate);
+                final service = _value(_service);
+                final due = _value(_previousDue);
+                Navigator.pop(context, <String, Object?>{
+                  'customer_id': _customerId,
+                  'quantity': qty,
+                  'rate': rate,
+                  'milk_type': _milkType,
+                  'service': service,
+                  'previous_due': due,
+                  'milk_amount': qty * rate,
+                  'total': qty * rate + service + due,
+                });
+              },
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              label: const Text('Create PDF'),
+            )),
+          ])),
+        ]),
+      ),
+    );
+  }
+
+  Widget _totalRow(String label, String amount, {bool bold = false}) => Row(children: [
+    Expanded(child: Text(label, style: TextStyle(fontWeight: bold ? FontWeight.bold : FontWeight.normal))),
+    Text(amount, style: TextStyle(fontWeight: FontWeight.bold, fontSize: bold ? 18 : 14)),
+  ]);
 }

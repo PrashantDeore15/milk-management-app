@@ -1,10 +1,10 @@
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
-
 import '../../models/customer_models.dart';
-import '../database/database_helper.dart';
+import '../../services/user_session.dart';
 import 'add_customer_screen.dart';
 
 class CustomerListScreen extends StatefulWidget {
@@ -15,8 +15,7 @@ class CustomerListScreen extends StatefulWidget {
       _CustomerListScreenState();
 }
 
-class _CustomerListScreenState
-    extends State<CustomerListScreen> {
+class _CustomerListScreenState extends State<CustomerListScreen> {
   final _searchController = TextEditingController();
 
   List<CustomerModel> _customers = [];
@@ -35,16 +34,41 @@ class _CustomerListScreenState
     super.dispose();
   }
 
+  // Load customers from the signed-in user's Firestore collection.
   Future<void> _loadCustomers() async {
-    if (mounted) setState(() => _loading = true);
+    if (mounted) {
+      setState(() => _loading = true);
+    }
 
     try {
-      final rows =
-      await DatabaseHelper.instance.getCustomers();
+      if (UserSession.uid == null || !UserSession.isActive) {
+        throw StateError('No active user session.');
+      }
 
-      final customers = rows
-          .map((row) => CustomerModel.fromMap(row))
-          .toList();
+      if (!UserSession.can('customers', 'view')) {
+        throw StateError(
+          'You do not have permission to view customers.',
+        );
+      }
+
+      final snapshot =
+      await UserSession.collection('customers').get();
+
+      final customers = snapshot.docs.map((doc) {
+        final data = doc.data();
+
+        // Adapt Firestore fields to the existing SQLite-style model.
+        return CustomerModel.fromFirestore(
+          doc.id,
+          data,
+        );
+      }).where((customer) => customer.isActive).toList();
+
+      customers.sort(
+            (a, b) => a.name.toLowerCase().compareTo(
+          b.name.toLowerCase(),
+        ),
+      );
 
       if (!mounted) return;
 
@@ -58,7 +82,9 @@ class _CustomerListScreenState
       setState(() => _loading = false);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ग्राहक लोड झाले नाहीत: $e')),
+        SnackBar(
+          content: Text('ग्राहक लोड झाले नाहीत: $e'),
+        ),
       );
     }
   }
@@ -76,6 +102,11 @@ class _CustomerListScreenState
   }
 
   Future<void> _addCustomer() async {
+    if (!UserSession.can('customers', 'create')) {
+      _showMessage('तुम्हाला ग्राहक जोडण्याची परवानगी नाही.');
+      return;
+    }
+
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -83,10 +114,17 @@ class _CustomerListScreenState
       ),
     );
 
-    if (result == true) _loadCustomers();
+    if (result == true) {
+      await _loadCustomers();
+    }
   }
 
   Future<void> _editCustomer(CustomerModel customer) async {
+    if (!UserSession.can('customers', 'edit')) {
+      _showMessage('तुम्हाला ग्राहक Edit करण्याची परवानगी नाही.');
+      return;
+    }
+
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -96,12 +134,21 @@ class _CustomerListScreenState
       ),
     );
 
-    if (result == true) _loadCustomers();
+    if (result == true) {
+      await _loadCustomers();
+    }
   }
 
   Future<void> _deactivateCustomer(
       CustomerModel customer,
       ) async {
+    if (!UserSession.can('customers', 'edit')) {
+      _showMessage(
+        'तुम्हाला ग्राहक Deactivate करण्याची परवानगी नाही.',
+      );
+      return;
+    }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -128,25 +175,36 @@ class _CustomerListScreenState
     if (confirm != true) return;
 
     try {
-      await DatabaseHelper.instance.deactivateCustomer(
-        customer.id,
-      );
+      // The path is scoped to the authenticated user's UID.
+      await UserSession.collection('customers')
+          .doc(customer.id.toString())
+          .update({
+        'is_active': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
       await _loadCustomers();
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ग्राहक Deactivate झाला'),
-        ),
+      _showMessage('ग्राहक Deactivate झाला');
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+
+      _showMessage(
+        'Firestore त्रुटी: ${e.message ?? e.code}',
       );
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('त्रुटी: $e')),
-      );
+      _showMessage('त्रुटी: $e');
     }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
@@ -225,9 +283,8 @@ class _CustomerListScreenState
                         ? 'No customers yet'
                         : 'No matching customers found',
                   ),
-                  if (_query.isEmpty)
+                  if (_query.isEmpty) ...[
                     const SizedBox(height: 12),
-                  if (_query.isEmpty)
                     FilledButton.icon(
                       onPressed: _addCustomer,
                       icon: const Icon(Icons.add),
@@ -235,6 +292,7 @@ class _CustomerListScreenState
                         'Add First Customer',
                       ),
                     ),
+                  ],
                 ],
               ),
             )
@@ -299,8 +357,7 @@ class _CustomerListScreenState
                           ),
                         ],
                       ),
-                      onTap: () =>
-                          _editCustomer(customer),
+                      onTap: () => _editCustomer(customer),
                     ),
                   );
                 },

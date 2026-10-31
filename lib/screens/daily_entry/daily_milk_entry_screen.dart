@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../models/customer_models.dart';
+import '../../services/customer_cache_service.dart';
 import '../database/database_helper.dart';
 import 'customer_monthly_summary_screen.dart';
 
@@ -49,6 +50,7 @@ class _DailyMilkEntryScreenState
     if (mounted) setState(() => _loading = true);
 
     try {
+      await CustomerCacheService.refresh();
       final rows = await DatabaseHelper.instance.getCustomers();
 
       final customers = rows
