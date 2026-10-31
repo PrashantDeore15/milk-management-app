@@ -15,17 +15,17 @@ class MilkRatesScreen extends StatefulWidget {
 class _MilkRatesScreenState extends State<MilkRatesScreen> {
   final _formKey = GlobalKey<FormState>();
   final _controllers = <String, TextEditingController>{
-    'cow': TextEditingController(),
-    'standard': TextEditingController(),
-    'full_cream': TextEditingController(),
+    'cow_milk': TextEditingController(),
+    'buffalo_milk': TextEditingController(),
+    'fresh_milk': TextEditingController(),
   };
   bool _loading = true;
   bool _saving = false;
 
   static const _labels = {
-    'cow': 'Cow Milk',
-    'standard': 'Standard Milk',
-    'full_cream': 'Full Cream Milk',
+    'cow_milk': 'Cow Milk',
+    'buffalo_milk': 'Buffalo Milk',
+    'fresh_milk': 'Fresh Milk',
   };
 
   @override
@@ -49,16 +49,17 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
       }
 
       final rates = <String, double>{
-        'cow': 60,
-        'standard': 65,
-        'full_cream': 70,
+        'cow_milk': 60,
+        'buffalo_milk': 65,
+        'fresh_milk': 70,
       };
+      rates.addAll(await DatabaseHelper.instance.getMilkRates());
 
       if (UserSession.can('settings', 'view')) {
         final snapshot = await UserSession.collection('settings')
             .doc('milk_rates')
             .get();
-        final savedRates = snapshot.data()?['rates'];
+        final savedRates = snapshot.data()?['extra_item_rates'];
         if (savedRates is Map) {
           for (final key in _labels.keys) {
             final value = savedRates[key];
@@ -98,43 +99,14 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
       await UserSession.collection('settings')
           .doc('milk_rates')
           .set({
-        'rates': rates,
+        'extra_item_rates': rates,
         'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       await DatabaseHelper.instance.saveMilkRates(rates);
 
-      // Preserve the previous app behavior: update existing customers'
-      // rates when their milk type has a newly saved rate.
-      final customers = await UserSession.collection('customers').get();
-      var batch = FirebaseFirestore.instance.batch();
-      var pending = 0;
-
-      for (final customer in customers.docs) {
-        final type = customer.data()['milk_type']?.toString();
-        final newRate = rates[type];
-        if (newRate != null) {
-          batch.update(customer.reference, {
-            'rate': newRate,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-          pending++;
-
-          // Keep each Firestore batch below the 500-write limit.
-          if (pending == 450) {
-            await batch.commit();
-            batch = FirebaseFirestore.instance.batch();
-            pending = 0;
-          }
-        }
-      }
-
-      if (pending > 0) {
-        await batch.commit();
-      }
-
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Milk rates saved and applied to customers.')),
+        const SnackBar(content: Text('Extra milk item rates saved.')),
       );
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save rates: $error')));
@@ -165,9 +137,9 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
                       children: [
                         Icon(Icons.water_drop_rounded, color: Colors.white, size: 34),
                         SizedBox(height: 12),
-                        Text('Set your milk prices', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                        Text('Set extra milk item prices', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                         SizedBox(height: 5),
-                        Text('Saved rates update customers and are used for new daily entries.', style: TextStyle(color: Colors.white)),
+                        Text('These prices are used for Cow Milk, Buffalo Milk, and Fresh Milk extra items.', style: TextStyle(color: Colors.white)),
                       ],
                     ),
                   ),
@@ -202,7 +174,7 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
                     child: ElevatedButton.icon(
                       onPressed: _saving ? null : _saveRates,
                       icon: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.save_rounded),
-                      label: Text(_saving ? 'Saving...' : 'Save and Apply Rates'),
+                      label: Text(_saving ? 'Saving...' : 'Save Milk Item Rates'),
                     ),
                   ),
                 ],

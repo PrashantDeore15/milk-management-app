@@ -18,7 +18,7 @@ class DatabaseHelper {
 
     _database = await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _createDatabase,
       onUpgrade: _upgradeDatabase,
     );
@@ -131,6 +131,7 @@ class DatabaseHelper {
       """);
     }
     if (oldVersion < 4) await _createCustomerProducts(db);
+    if (oldVersion < 5) await _addExtraMilkRates(db);
   }
 
   Future<void> _createCustomerProducts(DatabaseExecutor db) async {
@@ -180,12 +181,27 @@ class DatabaseHelper {
     await db.insert('milk_rates', {'milk_type': 'cow', 'rate': 60});
     await db.insert('milk_rates', {'milk_type': 'standard', 'rate': 65});
     await db.insert('milk_rates', {'milk_type': 'full_cream', 'rate': 70});
+    await _addExtraMilkRates(db);
     // Existing buffalo customers are grouped with the standard milk rate.
     await db.update('customers', {'milk_type': 'standard'}, where: 'milk_type = ?', whereArgs: ['buffalo']);
     await db.rawUpdate('''
       UPDATE customers SET rate = CASE milk_type
         WHEN 'cow' THEN 60 WHEN 'standard' THEN 65 WHEN 'full_cream' THEN 70 ELSE rate END
     ''');
+  }
+
+  Future<void> _addExtraMilkRates(DatabaseExecutor db) async {
+    for (final entry in const {
+      'cow_milk': 60.0,
+      'buffalo_milk': 65.0,
+      'fresh_milk': 70.0,
+    }.entries) {
+      await db.insert(
+        'milk_rates',
+        {'milk_type': entry.key, 'rate': entry.value},
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   Future<Map<String, double>> getMilkRates() async {

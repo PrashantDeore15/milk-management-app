@@ -120,6 +120,7 @@ class _DailyMilkEntryScreenState
 
   Future<void> _showMoreProducts(CustomerModel customer) async {
     final existing = await DatabaseHelper.instance.getCustomerDailyProducts(customer.id, _dateKey);
+    final milkRates = await DatabaseHelper.instance.getMilkRates();
     if (!mounted) return;
     const products = <(String, String, double, String)>[
       ('Cow Milk', 'cow_milk', 0, 'L'), ('Buffalo Milk', 'buffalo_milk', 0, 'L'),
@@ -164,7 +165,7 @@ class _DailyMilkEntryScreenState
       for (final (label, key, listedPrice, unit) in products) {
         if (key.startsWith('dahi_') ? key != selectedDahi : !selected.contains(key)) continue;
         final qty = double.tryParse(quantities[key]!.text) ?? 0;
-        final price = listedPrice == 0 ? customer.rate : listedPrice;
+        final price = listedPrice == 0 ? (milkRates[key] ?? customer.rate) : listedPrice;
         if (qty <= 0 || !qty.isFinite) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Enter a valid quantity for $label.')));
           for (final c in quantities.values) { c.dispose(); }

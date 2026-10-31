@@ -196,9 +196,9 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
     if (UserSession.isActive && UserSession.can('settings', 'view')) {
       try {
         final snapshot = await UserSession.collection('settings').doc('milk_rates').get();
-        final savedRates = snapshot.data()?['rates'];
+        final savedRates = snapshot.data()?['extra_item_rates'];
         if (savedRates is Map) {
-          for (final type in const ['cow', 'standard', 'full_cream']) {
+          for (final type in const ['cow_milk', 'buffalo_milk', 'fresh_milk']) {
             final value = savedRates[type];
             if (value is num && value > 0) milkRates[type] = value.toDouble();
           }
@@ -227,6 +227,7 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
       'milk_amount': selectedValues['milk_amount'],
       'milk_rate': selectedValues['rate'],
       'total_milk_quantity': selectedValues['quantity'],
+      'extra_items': selectedValues['extra_items'],
       'service_charge': selectedValues['service'],
       'previous_due': selectedValues['previous_due'],
       'payments_received': 0,
@@ -376,27 +377,55 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
   final _previousDue = TextEditingController(text: '0');
   late String _customerId;
   late String _milkType;
+  List<Map<String, Object?>> _extraItems = [];
+
+  static const _products = <(String, String, double, String)>[
+    ('Cow Milk', 'cow_milk', 0, 'L'),
+    ('Buffalo Milk', 'buffalo_milk', 0, 'L'),
+    ('Fresh Milk', 'fresh_milk', 0, 'L'),
+    ('Tak 500 ml', 'tak_500ml', 22, 'pack'),
+    ('Dahi 100 gm', 'dahi_100', 16, 'pack'),
+    ('Dahi 200 gm', 'dahi_200', 32, 'pack'),
+    ('Dahi 500 gm', 'dahi_500', 43, 'pack'),
+    ('Dahi 1 kg', 'dahi_1kg', 130, 'pack'),
+  ];
 
   static const _types = <String, String>{
-    'cow': 'Cow milk',
-    'standard': 'Standard milk',
-    'full_cream': 'Full cream milk',
+    'cow_milk': 'Cow milk',
+    'buffalo_milk': 'Buffalo milk',
+    'fresh_milk': 'Fresh milk',
   };
+
+  String _rateKeyForCustomerType(Object? customerType) {
+    switch (customerType?.toString()) {
+      case 'standard':
+      case 'buffalo':
+      case 'buffalo_milk':
+        return 'buffalo_milk';
+      case 'full_cream':
+      case 'fresh_milk':
+        return 'fresh_milk';
+      default:
+        return 'cow_milk';
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     final customer = widget.customers.first;
     _customerId = customer['id'].toString();
-    final type = customer['milk_type']?.toString() ?? 'cow';
-    _milkType = widget.milkRates.containsKey(type) ? type : 'cow';
+    _milkType = _rateKeyForCustomerType(customer['milk_type']);
     _rate.text = (widget.milkRates[_milkType] ?? 0).toStringAsFixed(2);
     for (final controller in [_quantity, _rate, _service, _previousDue]) {
       controller.addListener(_refresh);
     }
   }
 
-  void _refresh() { if (mounted) setState(() {}); }
+  void _refresh() {
+    if (!mounted) return;
+    setState(() {});
+  }
 
   @override
   void dispose() {
@@ -408,6 +437,33 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
   }
 
   double _value(TextEditingController controller) => double.tryParse(controller.text.trim()) ?? 0;
+
+  double get _itemsTotal => _extraItems.fold<double>(
+    0,
+    (sum, item) => sum + (item['total'] as double),
+  );
+
+  Future<void> _addItems() async {
+    final initialQuantities = <String, String>{
+      for (final item in _extraItems) item['key'] as String: (item['quantity'] as double).toString(),
+    };
+    final initiallySelected = initialQuantities.keys.toSet();
+    final initialDahi = initiallySelected.firstWhere(
+      (key) => key.startsWith('dahi_'),
+      orElse: () => '',
+    );
+    final result = await showDialog<List<Map<String, Object?>>>(
+      context: context,
+      builder: (_) => _ExtraItemsPicker(
+        products: _products,
+        initialQuantities: initialQuantities,
+        initiallySelected: initiallySelected,
+        initialDahi: initialDahi.isEmpty ? null : initialDahi,
+        itemRates: widget.milkRates,
+      ),
+    );
+    if (result != null && mounted) setState(() => _extraItems = result);
+  }
 
   String? _validate(String? value) {
     final amount = double.tryParse(value?.trim() ?? '');
@@ -424,7 +480,7 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
   @override
   Widget build(BuildContext context) {
     final milkAmount = _value(_quantity) * _value(_rate);
-    final total = milkAmount + _value(_service) + _value(_previousDue);
+    final total = milkAmount + _itemsTotal + _value(_service) + _value(_previousDue);
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -461,15 +517,14 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
                 onChanged: (id) {
                   if (id == null) return;
                   final customer = widget.customers.firstWhere((item) => item['id'].toString() == id);
-                  final type = customer['milk_type']?.toString() ?? 'cow';
                   setState(() {
                     _customerId = id;
-                    _milkType = widget.milkRates.containsKey(type) ? type : 'cow';
+                    _milkType = _rateKeyForCustomerType(customer['milk_type']);
                     _rate.text = (widget.milkRates[_milkType] ?? 0).toStringAsFixed(2);
                   });
                 },
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10,),
               DropdownButtonFormField<String>(
                 value: _milkType,
                 decoration: const InputDecoration(labelText: 'Milk type', prefixIcon: Icon(Icons.water_drop_outlined)),
@@ -482,6 +537,31 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
                   });
                 },
               ),
+              const SizedBox(height: 8,),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _addItems,
+                  icon: const Icon(Icons.add_shopping_cart_outlined),
+                  label: const Text('Add item'),
+                ),
+              ),
+              if (_extraItems.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                ..._extraItems.map((item) => Card(
+                  margin: const EdgeInsets.only(bottom: 7),
+                  elevation: 0,
+                  color: const Color(0xFFF5FAFA),
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                    leading: const Icon(Icons.shopping_basket_outlined, color: Color(0xFF087E8B)),
+                    title: Text(item['label'] as String),
+                    subtitle: Text('${(item['quantity'] as double).toStringAsFixed(2)} ${item['unit']} × ₹${(item['price'] as double).toStringAsFixed(2)}'),
+                    trailing: Text('₹${(item['total'] as double).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                )),
+              ],
               const SizedBox(height: 14),
               Row(children: [
                 Expanded(child: _numberField(_quantity, 'Milk quantity', suffix: 'L')),
@@ -500,6 +580,10 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
                 decoration: BoxDecoration(color: const Color(0xFFEAF7F5), borderRadius: BorderRadius.circular(16)),
                 child: Column(children: [
                   _totalRow('Milk amount', '${milkAmount.toStringAsFixed(2)}'),
+                  if (_extraItems.isNotEmpty) ...[
+                    const SizedBox(height: 7),
+                    _totalRow('Extra items', '₹${_itemsTotal.toStringAsFixed(2)}'),
+                  ],
                   const SizedBox(height: 7),
                   _totalRow('Service + previous due', '${(_value(_service) + _value(_previousDue)).toStringAsFixed(2)}'),
                   const Divider(height: 20),
@@ -523,10 +607,12 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
                   'quantity': qty,
                   'rate': rate,
                   'milk_type': _milkType,
+                  'extra_items': _extraItems,
+                  'extra_items_amount': _itemsTotal,
                   'service': service,
                   'previous_due': due,
                   'milk_amount': qty * rate,
-                  'total': qty * rate + service + due,
+                  'total': qty * rate + _itemsTotal + service + due,
                 });
               },
               icon: const Icon(Icons.picture_as_pdf_outlined),
@@ -542,4 +628,141 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
     Expanded(child: Text(label, style: TextStyle(fontWeight: bold ? FontWeight.bold : FontWeight.normal))),
     Text(amount, style: TextStyle(fontWeight: FontWeight.bold, fontSize: bold ? 18 : 14)),
   ]);
+}
+
+class _ExtraItemsPicker extends StatefulWidget {
+  final List<(String, String, double, String)> products;
+  final Map<String, String> initialQuantities;
+  final Set<String> initiallySelected;
+  final String? initialDahi;
+  final Map<String, double> itemRates;
+
+  const _ExtraItemsPicker({
+    required this.products,
+    required this.initialQuantities,
+    required this.initiallySelected,
+    required this.initialDahi,
+    required this.itemRates,
+  });
+
+  @override
+  State<_ExtraItemsPicker> createState() => _ExtraItemsPickerState();
+}
+
+class _ExtraItemsPickerState extends State<_ExtraItemsPicker> {
+  late final Set<String> _selected;
+  late final Map<String, String> _quantities;
+  String? _selectedDahi;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = Set<String>.from(widget.initiallySelected);
+    _quantities = Map<String, String>.from(widget.initialQuantities);
+    _selectedDahi = widget.initialDahi;
+  }
+
+  void _save() {
+    final items = <Map<String, Object?>>[];
+    for (final (label, key, listedPrice, unit) in widget.products) {
+      final isDahi = key.startsWith('dahi_');
+      if (isDahi ? key != _selectedDahi : !_selected.contains(key)) continue;
+      final quantity = double.tryParse(_quantities[key] ?? '') ?? 0;
+      if (!quantity.isFinite || quantity <= 0) {
+        setState(() => _error = 'Enter a quantity greater than zero for $label.');
+        return;
+      }
+      final price = listedPrice == 0 ? (widget.itemRates[key] ?? 0) : listedPrice;
+      items.add({
+        'label': label,
+        'key': key,
+        'quantity': quantity,
+        'unit': unit,
+        'price': price,
+        'total': quantity * price,
+      });
+    }
+    Navigator.of(context).pop(items);
+  }
+
+  Widget _quantityField(String key, String label, String unit) => Padding(
+    padding: const EdgeInsets.only(left: 54, right: 12, bottom: 8),
+    child: TextFormField(
+      key: ValueKey('quantity-$key'),
+      initialValue: _quantities[key] ?? '',
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(isDense: true, labelText: '$label quantity', suffixText: unit),
+      onChanged: (value) => setState(() {
+        _quantities[key] = value;
+        _error = null;
+      }),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Add extra items'),
+    content: SizedBox(
+      width: 440,
+      child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ),
+          ),
+        ...widget.products.where((product) => !product.$2.startsWith('dahi_')).map((product) {
+          final (label, key, listedPrice, unit) = product;
+          final price = listedPrice == 0 ? (widget.itemRates[key] ?? 0) : listedPrice;
+          return Column(children: [
+            CheckboxListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text(label),
+              subtitle: Text('₹${price.toStringAsFixed(2)} / $unit'),
+              value: _selected.contains(key),
+              onChanged: (checked) => setState(() {
+                _error = null;
+                if (checked == true) {
+                  _selected.add(key);
+                  _quantities.putIfAbsent(key, () => '');
+                } else {
+                  _selected.remove(key);
+                }
+              }),
+            ),
+            if (_selected.contains(key)) _quantityField(key, label, unit),
+          ]);
+        }),
+        const Divider(),
+        const Align(alignment: Alignment.centerLeft, child: Text('Dahi size', style: TextStyle(fontWeight: FontWeight.w600))),
+        ...widget.products.where((product) => product.$2.startsWith('dahi_')).map((product) {
+          final (label, key, price, unit) = product;
+          return Column(children: [
+            RadioListTile<String>(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text(label),
+              subtitle: Text('₹${price.toStringAsFixed(2)} / $unit'),
+              value: key,
+              groupValue: _selectedDahi,
+              onChanged: (value) => setState(() {
+                _error = null;
+                _selectedDahi = value;
+                if (value != null) _quantities.putIfAbsent(value, () => '');
+              }),
+            ),
+            if (_selectedDahi == key) _quantityField(key, label, unit),
+          ]);
+        }),
+      ])),
+    ),
+    actions: [
+      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      FilledButton(onPressed: _save, child: const Text('Add selected items')),
+    ],
+  );
 }

@@ -458,6 +458,18 @@ class BillPdfService {
             },
             border: pw.TableBorder.all(color: _line, width: 0.5),
             children: [
+              if (bill['extra_items'] is List)
+                ...(bill['extra_items'] as List).whereType<Map>().map((item) {
+                  final label = _string(item['label'], 'Extra item');
+                  final quantity = _number(item['quantity']);
+                  final unit = _string(item['unit']);
+                  final price = _number(item['price']);
+                  final total = _number(item['total']);
+                  return _summaryRow(
+                    '$label (${quantity.toStringAsFixed(2)} $unit × ${_money(price)})',
+                    _money(total),
+                  );
+                }),
               if (bill['total_milk_quantity'] != null)
                 _summaryRow('Total Milk', '${_number(bill['total_milk_quantity']).toStringAsFixed(2)} L'),
               if (bill['milk_rate'] != null)
