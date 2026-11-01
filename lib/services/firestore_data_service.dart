@@ -500,9 +500,14 @@ class FirestoreDataService {
       throw ArgumentError('Bill ID is required.');
     }
 
-    final ref = _collection('bills', 'create');
+    final viewRef = _collection('bills', 'view');
+    final existing = await viewRef.doc(id).get();
+    final permission = existing.exists ? 'edit' : 'create';
+    if (!UserSession.can('bills', permission)) {
+      throw StateError('You do not have permission to $permission bills.');
+    }
 
-    await ref.doc(id).set({
+    await UserSession.collection('bills').doc(id).set({
       ...bill,
       'updatedAt': FieldValue.serverTimestamp(),
       'createdBy': UserSession.uid,

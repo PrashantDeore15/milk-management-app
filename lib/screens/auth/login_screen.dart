@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../services/user_session.dart';
+import '../../services/legacy_data_migration.dart';
 import '../admin/admin_dashboard.dart';
 
 // Keep the correct AdminDashboard import from your existing file.
@@ -68,6 +69,8 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         return;
       }
+
+      try { await LegacyDataMigration.run(); } catch (_) { /* Retry at next launch. */ }
 
       // Step 4: Open the dashboard after successful validation.
       // Replace AdminDashboard() below with your existing dashboard widget

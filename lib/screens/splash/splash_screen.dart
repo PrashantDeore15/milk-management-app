@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/user_session.dart';
+import '../../services/legacy_data_migration.dart';
 import '../admin/admin_dashboard.dart';
 import '../auth/login_screen.dart';
 
@@ -32,6 +33,7 @@ class _SplashScreenState extends State<SplashScreen> {
       if (FirebaseAuth.instance.currentUser != null) {
         final validProfile = await UserSession.load();
         if (validProfile) {
+          try { await LegacyDataMigration.run(); } catch (_) { /* Retry on the next launch if permissions or connectivity are missing. */ }
           destination = const AdminDashboard();
         } else {
           await FirebaseAuth.instance.signOut();

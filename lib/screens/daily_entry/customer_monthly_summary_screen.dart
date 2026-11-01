@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../models/customer_models.dart';
-import '../database/database_helper.dart';
+import '../../services/firestore_data_service.dart';
 
 class CustomerMonthlySummaryScreen extends StatefulWidget {
   final CustomerModel customer;
@@ -29,14 +29,12 @@ class _CustomerMonthlySummaryScreenState extends State<CustomerMonthlySummaryScr
     final now = DateTime.now();
     final start = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month));
     final end = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, now.day));
-    final db = await DatabaseHelper.instance.database;
-    final entries = await db.query(
-      'milk_entries',
-      where: 'customer_id = ? AND entry_date >= ? AND entry_date <= ? AND delivered = 1',
-      whereArgs: [widget.customer.id, start, end],
-      orderBy: 'entry_date DESC',
-    );
-    final products = await db.query('customer_daily_products', where: 'customer_id = ? AND entry_date >= ? AND entry_date <= ?', whereArgs: [widget.customer.id, start, end], orderBy: 'entry_date DESC');
+    final service = FirestoreDataService.instance;
+    final exclusiveEnd = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, now.day + 1));
+    final entries = await service.getMilkEntriesForPeriod(customerId: widget.customer.id, startDate: start, endDate: exclusiveEnd);
+    entries.sort((a, b) => (b['entry_date'] ?? '').toString().compareTo((a['entry_date'] ?? '').toString()));
+    final products = await service.getDailyProductsForPeriod(customerId: widget.customer.id, startDate: start, endDate: exclusiveEnd);
+    products.sort((a, b) => (b['entry_date'] ?? '').toString().compareTo((a['entry_date'] ?? '').toString()));
     if (!mounted) return;
     setState(() {
       _entries = entries;

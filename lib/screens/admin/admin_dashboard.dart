@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:sqflite/sqflite.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../database/database_helper.dart';
+import '../../services/firestore_data_service.dart';
 import 'milk_rates_screen.dart';
 import '../bills/monthly_billing_screen.dart';
 import '../customers/customer_list_screen.dart';
@@ -152,53 +151,40 @@ class _HomePageState extends State<_HomePage> {
   Future<void> _loadStats() async {
     setState(() => _loadingStats = true);
     try {
-      final db = await DatabaseHelper.instance.database;
+      final service = FirestoreDataService.instance;
       final now = DateTime.now();
       final today = DateFormat('yyyy-MM-dd').format(now);
       final monthStart = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month));
       final nextMonth = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month + 1));
       final billingMonth = DateFormat('yyyy-MM').format(now);
 
-      final customerCount = Sqflite.firstIntValue(await db.rawQuery(
-        'SELECT COUNT(*) FROM customers WHERE is_active = 1',
-      )) ?? 0;
-      final todayResult = await db.rawQuery('''
-        SELECT COALESCE(SUM(quantity), 0) AS total
-        FROM milk_entries WHERE entry_date = ? AND delivered = 1
-      ''', [today]);
-      final monthlyMilkResult = await db.rawQuery('''
-        SELECT COALESCE(SUM(quantity * rate), 0) AS total
-        FROM milk_entries
-        WHERE entry_date >= ? AND entry_date < ? AND delivered = 1
-      ''', [monthStart, nextMonth]);
-      final allCustomers = await db.query('customers', columns: ['id']);
-      final monthlyRows = await db.rawQuery('''
-        SELECT
-          c.id,
-          COALESCE((SELECT final_balance FROM bills b
-            WHERE b.customer_id = c.id AND b.billing_month < ?
-            ORDER BY b.billing_month DESC LIMIT 1), 0) AS previous_due,
-          COALESCE((SELECT SUM(quantity * rate) FROM milk_entries m
-            WHERE m.customer_id = c.id AND m.entry_date >= ? AND m.entry_date < ? AND m.delivered = 1), 0) AS milk_amount,
-          COALESCE((SELECT SUM(amount) FROM payments p
-            WHERE p.customer_id = c.id AND p.payment_date >= ? AND p.payment_date < ?), 0) AS payments
-        FROM customers c
-      ''', [billingMonth, monthStart, nextMonth, monthStart, nextMonth]);
-
+      final customers = await service.getCustomers();
+      final todayEntries = await service.getMilkEntries(today);
+      final todayMilk = todayEntries.where((row) => row['delivered'] == true || row['delivered'] == 1).fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0));
+      // Query each active customer because Firestore entries are partitioned by customer.
+      var monthlyMilk = 0.0;
       var pending = 0.0;
-      for (final row in monthlyRows) {
-        final previousDue = (row['previous_due'] as num).toDouble();
-        final milkAmount = (row['milk_amount'] as num).toDouble();
-        final payments = (row['payments'] as num).toDouble();
-        final balance = previousDue + milkAmount + 60 - payments;
+      for (final customer in customers) {
+        final id = customer['id'].toString();
+        final entries = await service.getMilkEntriesForPeriod(customerId: id, startDate: monthStart, endDate: nextMonth);
+        monthlyMilk += entries.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['rate'] as num?)?.toDouble() ?? 0));
+        final previous = await service.getPreviousBills(id, billingMonth);
+        final payments = await service.getPaymentsForPeriod(customerId: id, startDate: monthStart, endDate: nextMonth);
+        final extras = await service.getDailyProductsForPeriod(customerId: id, startDate: monthStart, endDate: nextMonth);
+        final previousDue = previous.isEmpty ? 0.0 : (previous.first['final_balance'] as num?)?.toDouble() ?? 0;
+        final extraAmount = extras.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['unit_price'] as num?)?.toDouble() ?? 0));
+        final milkAmount = entries.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['rate'] as num?)?.toDouble() ?? 0)) + extraAmount;
+        monthlyMilk += extraAmount;
+        final received = payments.fold<double>(0, (sum, row) => sum + ((row['amount'] as num?)?.toDouble() ?? 0));
+        final balance = previousDue + milkAmount + 60 - received;
         if (balance > 0) pending += balance;
       }
 
       if (!mounted) return;
       setState(() {
-        _customerCount = customerCount;
-        _todayMilk = (todayResult.first['total'] as num).toDouble();
-        _monthlyBilling = (monthlyMilkResult.first['total'] as num).toDouble() + allCustomers.length * 60;
+        _customerCount = customers.length;
+        _todayMilk = todayMilk;
+        _monthlyBilling = monthlyMilk + customers.length * 60;
         _pendingAmount = pending;
         _loadingStats = false;
       });

@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../database/database_helper.dart';
+import '../../services/firestore_data_service.dart';
+import '../../services/user_session.dart';
 
 class BillCustomerDetailScreen extends StatefulWidget {
   final Map<String, Object?> bill;
@@ -42,27 +43,20 @@ class _BillCustomerDetailScreenState extends State<BillCustomerDetailScreen> {
       final month = int.parse(parts[1]);
       final start = DateFormat('yyyy-MM-dd').format(DateTime(year, month));
       final end = DateFormat('yyyy-MM-dd').format(DateTime(year, month + 1));
-      final db = await DatabaseHelper.instance.database;
-      final rows = await db.query(
-        'milk_entries',
-        where: 'customer_id = ? AND entry_date >= ? AND entry_date < ? AND delivered = 1',
-        whereArgs: [widget.bill['customer_id'], start, end],
-        orderBy: 'entry_date DESC',
-      );
-      final extraRows = await db.query('customer_daily_products', where: 'customer_id = ? AND entry_date >= ? AND entry_date < ?', whereArgs: [widget.bill['customer_id'], start, end], orderBy: 'entry_date DESC');
-      final amountDueToMonth = DateFormat('yyyy-MM-dd').format(DateTime(year, month + 1));
-      final paymentRows = await db.rawQuery('''
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM payments
-        WHERE customer_id = ? AND payment_date >= ? AND payment_date < ?
-      ''', [widget.bill['customer_id'], start, amountDueToMonth]);
+      final service = FirestoreDataService.instance;
+      final customerId = widget.bill['customer_id'].toString();
+      final rows = await service.getMilkEntriesForPeriod(customerId: customerId, startDate: start, endDate: end);
+      rows.sort((a, b) => (b['entry_date'] ?? '').toString().compareTo((a['entry_date'] ?? '').toString()));
+      final extraRows = await service.getDailyProductsForPeriod(customerId: customerId, startDate: start, endDate: end);
+      extraRows.sort((a, b) => (b['entry_date'] ?? '').toString().compareTo((a['entry_date'] ?? '').toString()));
+      final paymentRows = await service.getPaymentsForPeriod(customerId: customerId, startDate: start, endDate: end);
       final milkAmount = rows.fold<double>(
         0,
         (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['rate'] as num).toDouble(),
       ) + extraRows.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['unit_price'] as num).toDouble());
       final serviceCharge = (_currentBill['service_charge'] as num?)?.toDouble() ?? 60;
       final previousDue = (_currentBill['previous_due'] as num?)?.toDouble() ?? 0;
-      final paymentsReceived = (paymentRows.first['total'] as num).toDouble();
+      final paymentsReceived = paymentRows.fold<double>(0, (sum, payment) => sum + ((payment['amount'] as num?)?.toDouble() ?? 0));
       final calculatedBalance = previousDue + milkAmount + serviceCharge - paymentsReceived;
       final finalBalance = calculatedBalance > 0 ? calculatedBalance : 0.0;
       final updatedBill = <String, Object?>{
@@ -73,18 +67,18 @@ class _BillCustomerDetailScreenState extends State<BillCustomerDetailScreen> {
         'final_balance': finalBalance,
         'status': calculatedBalance <= 0 ? 'paid' : 'unpaid',
       };
-      await db.update(
-        'bills',
-        {
-          'milk_amount': milkAmount,
-          'service_charge': serviceCharge,
-          'payments_received': paymentsReceived,
-          'final_balance': finalBalance,
-          'status': calculatedBalance <= 0 ? 'paid' : 'unpaid',
-        },
-        where: 'id = ?',
-        whereArgs: [widget.bill['id']],
-      );
+      if (UserSession.can('bills', 'edit')) {
+        await service.updateBill(
+          widget.bill['id'].toString(),
+          {
+            'milk_amount': milkAmount,
+            'service_charge': serviceCharge,
+            'payments_received': paymentsReceived,
+            'final_balance': finalBalance,
+            'status': calculatedBalance <= 0 ? 'paid' : 'unpaid',
+          },
+        );
+      }
       if (!mounted) return;
       setState(() {
         _entries = rows;

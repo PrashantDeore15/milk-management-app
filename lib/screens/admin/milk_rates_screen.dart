@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../services/firestore_data_service.dart';
 import '../../services/user_session.dart';
-import '../database/database_helper.dart';
 
 class MilkRatesScreen extends StatefulWidget {
   const MilkRatesScreen({super.key});
@@ -48,27 +48,7 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
         throw StateError('No active user session.');
       }
 
-      final rates = <String, double>{
-        'cow_milk': 60,
-        'buffalo_milk': 65,
-        'fresh_milk': 70,
-      };
-      rates.addAll(await DatabaseHelper.instance.getMilkRates());
-
-      if (UserSession.can('settings', 'view')) {
-        final snapshot = await UserSession.collection('settings')
-            .doc('milk_rates')
-            .get();
-        final savedRates = snapshot.data()?['extra_item_rates'];
-        if (savedRates is Map) {
-          for (final key in _labels.keys) {
-            final value = savedRates[key];
-            if (value is num && value > 0) {
-              rates[key] = value.toDouble();
-            }
-          }
-        }
-      }
+      final rates = await FirestoreDataService.instance.getMilkRates();
 
       for (final key in _labels.keys) {
         _controllers[key]!.text = rates[key]!.toStringAsFixed(2);
@@ -87,22 +67,15 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
       if (!UserSession.can('settings', 'edit')) {
         throw StateError('You do not have permission to edit settings.');
       }
-      if (!UserSession.can('customers', 'edit')) {
-        throw StateError('You do not have permission to update customer rates.');
-      }
-
       final rates = {
         for (final key in _labels.keys)
           key: double.parse(_controllers[key]!.text.trim()),
       };
 
-      await UserSession.collection('settings')
-          .doc('milk_rates')
-          .set({
+      await UserSession.collection('settings').doc('milk_rates').set({
         'extra_item_rates': rates,
         'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      await DatabaseHelper.instance.saveMilkRates(rates);
+      }, SetOptions(merge: true));
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:sqflite/sqflite.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../services/bill_pdf_service.dart';
-import '../../services/customer_cache_service.dart';
+import '../../services/firestore_data_service.dart';
 import '../../services/user_session.dart';
-import '../database/database_helper.dart';
 import 'bill_customer_detail_screen.dart';
 
 class MonthlyBillingScreen extends StatefulWidget {
@@ -72,13 +70,16 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
   Future<void> _loadSavedBills() async {
     if (mounted) setState(() => _loading = true);
     try {
-      final db = await DatabaseHelper.instance.database;
-      final rows = await db.rawQuery('''
-        SELECT b.*, c.name, c.mobile, c.address, c.milk_type
-        FROM bills b INNER JOIN customers c ON c.id = b.customer_id
-        WHERE b.billing_month = ?
-        ORDER BY c.name COLLATE NOCASE ASC
-      ''', [_monthKey]);
+      final service = FirestoreDataService.instance;
+      final bills = await service.getBillsForMonth(_monthKey);
+      final customers = await service.getCustomers(activeOnly: false);
+      final byId = {for (final customer in customers) customer['id'].toString(): customer};
+      final rows = bills.map<Map<String, Object?>>((bill) {
+        final customer = byId[bill['customer_id']?.toString()];
+        return {...bill, 'name': customer?['name'] ?? bill['customer_name'] ?? 'Customer',
+          'mobile': customer?['mobile'] ?? '', 'address': customer?['address'] ?? '', 'milk_type': customer?['milk_type'] ?? ''};
+      }).toList();
+      rows.sort((a, b) => _text(a['name']).toLowerCase().compareTo(_text(b['name']).toLowerCase()));
       if (!mounted) return;
       setState(() {
         _bills = rows;
@@ -95,36 +96,19 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
     if (_loading) return;
     setState(() => _loading = true);
     try {
-      await CustomerCacheService.refresh();
-      final db = await DatabaseHelper.instance.database;
+      final service = FirestoreDataService.instance;
+      final customers = await service.getCustomersForBilling();
       final start = DateFormat('yyyy-MM-dd').format(DateTime(_month.year, _month.month));
       final end = DateFormat('yyyy-MM-dd').format(DateTime(_month.year, _month.month + 1));
-      await db.transaction((txn) async {
-        final customers = await txn.query('customers');
-        for (final customer in customers) {
+      for (final customer in customers) {
           final id = customer['id'] as String;
-          final milk = await txn.rawQuery('''
-            SELECT COALESCE(SUM(quantity * rate), 0) AS amount
-            FROM milk_entries
-            WHERE customer_id = ? AND entry_date >= ? AND entry_date < ? AND delivered = 1
-          ''', [id, start, end]);
-          final extras = await txn.rawQuery('''
-            SELECT COALESCE(SUM(quantity * unit_price), 0) AS amount
-            FROM customer_daily_products WHERE customer_id = ? AND entry_date >= ? AND entry_date < ?
-          ''', [id, start, end]);
-          final previous = await txn.query(
-            'bills', columns: ['final_balance'],
-            where: 'customer_id = ? AND billing_month < ?',
-            whereArgs: [id, _monthKey],
-            orderBy: 'billing_month DESC', limit: 1,
-          );
-          final payment = await txn.rawQuery('''
-            SELECT COALESCE(SUM(amount), 0) AS amount FROM payments
-            WHERE customer_id = ? AND payment_date >= ? AND payment_date < ?
-          ''', [id, start, end]);
-          final milkAmount = (milk.first['amount'] as num).toDouble() + (extras.first['amount'] as num).toDouble();
-          final previousDue = previous.isEmpty ? 0.0 : (previous.first['final_balance'] as num).toDouble();
-          final payments = (payment.first['amount'] as num).toDouble();
+          final milk = await service.getMilkEntriesForPeriod(customerId: id, startDate: start, endDate: end);
+          final extras = await service.getDailyProductsForPeriod(customerId: id, startDate: start, endDate: end);
+          final previous = await service.getPreviousBills(id, _monthKey);
+          final payment = await service.getPaymentsForPeriod(customerId: id, startDate: start, endDate: end);
+          final milkAmount = milk.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['rate'] as num?)?.toDouble() ?? 0)) + extras.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['unit_price'] as num?)?.toDouble() ?? 0));
+          final previousDue = previous.isEmpty ? 0.0 : (previous.first['final_balance'] as num?)?.toDouble() ?? 0;
+          final payments = payment.fold<double>(0, (sum, row) => sum + ((row['amount'] as num?)?.toDouble() ?? 0));
           final rawBalance = milkAmount + _serviceCharge + previousDue - payments;
           final balance = rawBalance > 0 ? rawBalance : 0.0;
           final bill = <String, Object?>{
@@ -139,9 +123,10 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
             'status': rawBalance <= 0 ? 'paid' : 'unpaid',
             'created_at': DateTime.now().toIso8601String(),
           };
-          await txn.insert('bills', bill, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-      });
+          bill['name'] = customer['name'] ?? 'Customer';
+          bill['mobile'] = customer['mobile'] ?? '';
+          await service.saveBill(Map<String, dynamic>.from(bill));
+      }
       await _loadSavedBills();
     } catch (error) {
       if (mounted) {
@@ -155,22 +140,18 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
     if (_sharing) return;
     setState(() => _sharing = true);
     try {
-      final db = await DatabaseHelper.instance.database;
-      final customers = await db.query('customers', where: 'id = ?', whereArgs: [bill['customer_id']], limit: 1);
-      if (customers.isEmpty) throw Exception('Customer not found');
+      final service = FirestoreDataService.instance;
+      final customer = await service.getCustomerById(_text(bill['customer_id']));
+      if (customer == null) throw Exception('Customer not found');
       final monthParts = _text(bill['billing_month']).split('-');
       final year = int.parse(monthParts[0]);
       final month = int.parse(monthParts[1]);
       final start = DateFormat('yyyy-MM-dd').format(DateTime(year, month));
       final end = DateFormat('yyyy-MM-dd').format(DateTime(year, month + 1));
-      final entries = await db.query(
-        'milk_entries',
-        where: 'customer_id = ? AND entry_date >= ? AND entry_date < ? AND delivered = 1',
-        whereArgs: [bill['customer_id'], start, end],
-        orderBy: 'entry_date ASC',
-      );
+      final entries = await service.getMilkEntriesForPeriod(customerId: _text(bill['customer_id']), startDate: start, endDate: end);
+      entries.sort((a, b) => _text(a['entry_date']).compareTo(_text(b['entry_date'])));
       await BillPdfService.generateAndShare(
-        customer: customers.first,
+        customer: customer,
         bill: bill,
         entries: entries,
         businessName: 'Atul Milk',
@@ -187,9 +168,9 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
   }
 
   Future<void> _createCustomBill() async {
-    await CustomerCacheService.refresh();
-    final customerRows = await DatabaseHelper.instance.getCustomers();
-    final milkRates = await DatabaseHelper.instance.getMilkRates();
+    final service = FirestoreDataService.instance;
+    final customerRows = await service.getCustomers();
+    final milkRates = await service.getMilkRates();
     // Milk Rates are saved to the user's Firestore settings. The local SQLite
     // table can still contain the installation defaults, so use the saved
     // rates whenever they are available.
