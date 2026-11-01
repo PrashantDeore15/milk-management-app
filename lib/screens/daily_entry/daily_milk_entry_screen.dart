@@ -5,8 +5,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../models/customer_models.dart';
-import '../../services/customer_cache_service.dart';
-import '../database/database_helper.dart';
+import '../../services/firestore_data_service.dart';
+import '../../services/user_session.dart';
 import 'customer_monthly_summary_screen.dart';
 
 
@@ -50,15 +50,13 @@ class _DailyMilkEntryScreenState
     if (mounted) setState(() => _loading = true);
 
     try {
-      await CustomerCacheService.refresh();
-      final rows = await DatabaseHelper.instance.getCustomers();
+      final rows = await FirestoreDataService.instance.getCustomers();
 
       final customers = rows
           .map((row) => CustomerModel.fromMap(row))
           .toList();
 
-      final entries =
-      await DatabaseHelper.instance.getMilkEntries(_dateKey);
+      final entries = await FirestoreDataService.instance.getMilkEntries(_dateKey);
 
       final entryMap = {
         for (final entry in entries)
@@ -84,7 +82,7 @@ class _DailyMilkEntryScreenState
 
         _delivered[customer.id] = existing == null
             ? false
-            : (existing['delivered'] as int) == 1;
+            : (existing['delivered'] == true || existing['delivered'] == 1);
       }
 
       if (!mounted) return;
@@ -119,8 +117,14 @@ class _DailyMilkEntryScreenState
   }
 
   Future<void> _showMoreProducts(CustomerModel customer) async {
-    final existing = await DatabaseHelper.instance.getCustomerDailyProducts(customer.id, _dateKey);
-    final milkRates = await DatabaseHelper.instance.getMilkRates();
+    if (!UserSession.can('customerDailyProducts', 'view') ||
+        !UserSession.can('customerDailyProducts', 'create') ||
+        !UserSession.can('customerDailyProducts', 'delete')) {
+      _message('तुम्हाला Extra Products पाहण्याची/सेव्ह करण्याची परवानगी नाही.');
+      return;
+    }
+    final existing = await FirestoreDataService.instance.getCustomerDailyProducts(customer.id, _dateKey);
+    final milkRates = await FirestoreDataService.instance.getMilkRates();
     if (!mounted) return;
     const products = <(String, String, double, String)>[
       ('Cow Milk', 'cow_milk', 0, 'L'), ('Buffalo Milk', 'buffalo_milk', 0, 'L'),
@@ -173,10 +177,20 @@ class _DailyMilkEntryScreenState
         }
         rows.add({'id': const Uuid().v4(), 'customer_id': customer.id, 'entry_date': _dateKey, 'product_name': key, 'quantity': qty, 'unit': unit, 'unit_price': price});
       }
-      await DatabaseHelper.instance.saveCustomerDailyProducts(rows, customer.id, _dateKey);
+      await FirestoreDataService.instance.saveCustomerDailyProducts(
+        rows.map((row) => Map<String, dynamic>.from(row)).toList(),
+        customer.id,
+        _dateKey,
+      );
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Extra items saved for this customer.')));
     }
     for (final c in quantities.values) { c.dispose(); }
+  }
+
+  void _message(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   double get _totalMilk {
@@ -223,6 +237,11 @@ class _DailyMilkEntryScreenState
       }
     }
 
+    if (!UserSession.can('milkEntries', 'create')) {
+      _message('तुम्हाला Daily Milk Entry सेव्ह करण्याची परवानगी नाही.');
+      return;
+    }
+
     setState(() => _saving = true);
 
     try {
@@ -234,15 +253,15 @@ class _DailyMilkEntryScreenState
         )
             : 0.0;
 
-        await DatabaseHelper.instance.saveMilkEntry({
+        await FirestoreDataService.instance.saveMilkEntry({
           'id': const Uuid().v4(),
           'customer_id': customer.id,
           'entry_date': _dateKey,
           'quantity': quantity,
-          'delivered': delivered ? 1 : 0,
+          'delivered': delivered,
           'rate': customer.rate,
           'notes': delivered ? '' : 'Not delivered',
-          'synced': 0,
+          'synced': false,
         });
       }
 

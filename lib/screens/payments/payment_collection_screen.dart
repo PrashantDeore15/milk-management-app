@@ -4,8 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../services/customer_cache_service.dart';
-import '../database/database_helper.dart';
+import '../../services/firestore_data_service.dart';
+import '../../services/user_session.dart';
 
 class PaymentCollectionScreen extends StatefulWidget {
   const PaymentCollectionScreen({super.key});
@@ -48,9 +48,7 @@ class _PaymentCollectionScreenState
 
   Future<void> _loadCustomers() async {
     try {
-      await CustomerCacheService.refresh();
-      final customers =
-      await DatabaseHelper.instance.getCustomers();
+      final customers = await FirestoreDataService.instance.getCustomers();
 
       if (!mounted) return;
 
@@ -79,8 +77,7 @@ class _PaymentCollectionScreenState
     }
 
     try {
-      final payments =
-      await DatabaseHelper.instance.getPayments(id);
+      final payments = await FirestoreDataService.instance.getPayments(id);
 
       if (!mounted) return;
 
@@ -115,12 +112,17 @@ class _PaymentCollectionScreenState
       return;
     }
 
+    if (!UserSession.can('payments', 'create')) {
+      _message('तुम्हाला Payment नोंदवण्याची परवानगी नाही.');
+      return;
+    }
+
     final amount = double.parse(_amountController.text.trim());
 
     setState(() => _saving = true);
 
     try {
-      await DatabaseHelper.instance.addPayment({
+      await FirestoreDataService.instance.addPayment({
         'id': const Uuid().v4(),
         'customer_id': customerId,
         'payment_date':
@@ -129,7 +131,7 @@ class _PaymentCollectionScreenState
         'payment_mode': _paymentMode,
         'reference': _referenceController.text.trim(),
         'notes': _notesController.text.trim(),
-        'synced': 0,
+        'synced': false,
       });
 
       _amountController.clear();
