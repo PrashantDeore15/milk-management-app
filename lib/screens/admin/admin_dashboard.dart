@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -181,6 +183,8 @@ class _HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<_HomePage> {
+  late DateTime _now;
+  Timer? _clockTimer;
   bool _loadingStats = true;
   int _customerCount = 0;
   double _todayMilk = 0;
@@ -190,7 +194,17 @@ class _HomePageState extends State<_HomePage> {
   @override
   void initState() {
     super.initState();
+    _now = DateTime.now();
+    _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
     _loadStats();
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadStats() async {
@@ -256,10 +270,10 @@ class _HomePageState extends State<_HomePage> {
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [BoxShadow(color: AppTheme.primaryColor.withValues(alpha: .22), blurRadius: 18, offset: const Offset(0, 8))],
               ),
-              child: const Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Good day! 👋', style: TextStyle(color: Colors.white, fontSize: 15)),
+                  Text(_greeting, style: TextStyle(color: Colors.white, fontSize: 15)),
                   SizedBox(height: 6),
                   Text('Your business at a glance', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 21)),
                   SizedBox(height: 18),
@@ -284,13 +298,18 @@ class _HomePageState extends State<_HomePage> {
             const Text('Quick actions', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             _QuickAction(icon: Icons.local_drink_outlined, title: 'Daily milk entry', subtitle: 'Record today’s delivery', onTap: () => _open(context, const DailyMilkEntryScreen())),
-            _QuickAction(icon: Icons.person_add_alt_1_outlined, title: 'Customers', subtitle: 'View and manage customers', onTap: () => _open(context, const CustomerListScreen())),
             _QuickAction(icon: Icons.payments_outlined, title: 'Record a payment', subtitle: 'Add a customer payment', onTap: () => _open(context, const PaymentCollectionScreen())),
             _QuickAction(icon: Icons.receipt_long_outlined, title: 'Monthly bills', subtitle: 'Review and share bills', onTap: () => _open(context, const MonthlyBillingScreen())),
           ],
         ),
       ),
     );
+  }
+
+  String get _greeting {
+    if (_now.hour < 12) return 'Good morning! 👋';
+    if (_now.hour < 17) return 'Good afternoon! 👋';
+    return 'Good evening! 👋';
   }
 
   String _money(double amount) => NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2).format(amount);
