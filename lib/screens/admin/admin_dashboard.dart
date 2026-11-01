@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../services/firestore_data_service.dart';
+import '../../services/user_session.dart';
+import '../auth/login_screen.dart';
 import 'milk_rates_screen.dart';
 import '../bills/monthly_billing_screen.dart';
 import '../customers/customer_list_screen.dart';
@@ -96,6 +99,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 _openMilkRates();
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+              title: const Text('Logout', style: TextStyle(color: Colors.redAccent)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 22),
+              onTap: _confirmLogout,
+            ),
             const Spacer(),
             const Padding(
               padding: EdgeInsets.all(18),
@@ -105,6 +114,42 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Logout?'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+    if (shouldLogout != true || !mounted) return;
+
+    try {
+      await FirebaseAuth.instance.signOut();
+      UserSession.clear();
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+        (_) => false,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not logout: $error')),
+      );
+    }
   }
 
   Future<void> _openMilkRates() async {
