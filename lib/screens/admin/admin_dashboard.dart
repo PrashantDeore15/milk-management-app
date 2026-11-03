@@ -355,12 +355,14 @@ class _HomePageState extends State<_HomePage> {
             const Text('Quick actions', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             LayoutBuilder(builder: (context, constraints) {
-              final width = (constraints.maxWidth - 12) / 2;
-              return Wrap(spacing: 12, runSpacing: 12, children: [
-                _QuickAction(width: width, icon: Icons.local_drink_outlined, title: 'Daily milk entry', subtitle: 'Record today’s delivery', color: const Color(0xFF168AAD), onTap: () => _open(context, const DailyMilkEntryScreen())),
-                _QuickAction(width: width, icon: Icons.payments_outlined, title: 'Record a payment', subtitle: 'Add a customer payment', color: const Color(0xFF2A9D8F), onTap: () => _open(context, const PaymentCollectionScreen())),
-                _QuickAction(width: width, icon: Icons.receipt_long_outlined, title: 'Monthly bills', subtitle: 'Review and share bills', color: const Color(0xFF7B61A8), onTap: () => _open(context, const MonthlyBillingScreen())),
-              ]);
+              return _QuickAction(
+                width: constraints.maxWidth,
+                icon: Icons.local_drink_outlined,
+                title: 'Daily milk entry',
+                subtitle: 'Record today’s customer deliveries',
+                color: const Color(0xFF90CAF9),
+                onTap: () => _open(context, const DailyMilkEntryScreen()),
+              );
             }),
           ],
         ),
@@ -433,27 +435,43 @@ class _QuickAction extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
-      child: Card(
-        elevation: 0,
-        color: Colors.white,
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE1EFF6))),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(22),
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(22),
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(13)), child: Icon(icon, color: color)),
-                const Spacer(),
-                Icon(Icons.arrow_outward_rounded, size: 18, color: color),
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [color, const Color(0xFFE3F2FD)],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(color: color.withValues(alpha: .2), blurRadius: 18, offset: const Offset(0, 8)),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+              child: Row(children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: .55), borderRadius: BorderRadius.circular(18)),
+                  child: Icon(icon, color: const Color(0xFF155A8A), size: 30),
+                ),
+                const SizedBox(width: 16),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  Text(title, style: const TextStyle(color: Color(0xFF123B5D), fontWeight: FontWeight.bold, fontSize: 17)),
+                  const SizedBox(height: 5),
+                  Text(subtitle, style: const TextStyle(color: Color(0xFF355D7A), fontSize: 13)),
+                ])),
+                const SizedBox(width: 10),
+                const Icon(Icons.arrow_forward_rounded, color: Color(0xFF155A8A), size: 24),
               ]),
-              const SizedBox(height: 14),
-              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-              const SizedBox(height: 4),
-              Text(subtitle, maxLines: 2, style: const TextStyle(fontSize: 11, color: Colors.black54)),
-            ]),
+            ),
           ),
         ),
       ),
