@@ -31,6 +31,7 @@ class _PaymentCollectionScreenState
 
   bool _loading = true;
   bool _saving = false;
+  bool _loadingMonthlyHistory = false;
 
   @override
   void initState() {
@@ -85,6 +86,99 @@ class _PaymentCollectionScreenState
     } catch (e) {
       if (!mounted) return;
       _message('Payment History लोड झाली नाही: $e');
+    }
+  }
+
+  Future<void> _showMonthlyPaymentHistory() async {
+    if (_loadingMonthlyHistory) return;
+    setState(() => _loadingMonthlyHistory = true);
+    final now = DateTime.now();
+    final startDate = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month));
+    final endDate = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month + 1));
+
+    try {
+      final payments = await FirestoreDataService.instance.getAllPaymentsForPeriod(
+        startDate: startDate,
+        endDate: endDate,
+      );
+      if (!mounted) return;
+      final customerNames = {
+        for (final customer in _customers)
+          customer['id'].toString(): customer['name']?.toString() ?? 'Customer',
+      };
+      final monthLabel = DateFormat('MMMM yyyy').format(now);
+      final total = payments.fold<double>(
+        0,
+        (sum, payment) => sum + ((payment['amount'] as num?)?.toDouble() ?? 0),
+      );
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Payments received · $monthLabel'),
+          content: SizedBox(
+            width: 480,
+            child: payments.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text('No payments received this month.'),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        margin: const EdgeInsets.only(bottom: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE3F2FD),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.account_balance_wallet_outlined, color: Color(0xFF155A8A)),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text('${payments.length} payments received')),
+                            Text(_money(total), style: const TextStyle(fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        height: MediaQuery.sizeOf(dialogContext).height * .5,
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: payments.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final payment = payments[index];
+                            final customerId = payment['customer_id']?.toString() ?? '';
+                            final mode = (payment['payment_mode'] as String? ?? 'cash').toUpperCase();
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const CircleAvatar(
+                                backgroundColor: Color(0xFFEAF5FC),
+                                child: Icon(Icons.payments_outlined, color: Color(0xFF155A8A)),
+                              ),
+                              title: Text(customerNames[customerId] ?? 'Customer'),
+                              subtitle: Text('${payment['payment_date'] ?? ''} · $mode'),
+                              trailing: Text(
+                                _money(payment['amount']),
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+        ),
+      );
+    } catch (error) {
+      if (mounted) _message('Could not load this month’s payment history: $error');
+    } finally {
+      if (mounted) setState(() => _loadingMonthlyHistory = false);
     }
   }
 
@@ -189,6 +283,17 @@ class _PaymentCollectionScreenState
           : ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _loadingMonthlyHistory ? null : _showMonthlyPaymentHistory,
+              icon: _loadingMonthlyHistory
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.history),
+              label: Text(_loadingMonthlyHistory ? 'Loading payment history...' : 'Payment History · This Month'),
+            ),
+          ),
+          const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             value: _customerId,
             isExpanded: true,

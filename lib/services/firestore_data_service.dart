@@ -447,6 +447,23 @@ class FirestoreDataService {
         .toList();
   }
 
+  Future<List<Map<String, dynamic>>> getAllPaymentsForPeriod({
+    required String startDate,
+    required String endDate,
+  }) async {
+    final ref = _collection('payments', 'view');
+    final snapshot = await ref
+        .where('payment_date', isGreaterThanOrEqualTo: startDate)
+        .where('payment_date', isLessThan: endDate)
+        .get();
+
+    final rows = snapshot.docs
+        .map((doc) => {...doc.data(), 'id': doc.id})
+        .toList();
+    rows.sort((a, b) => (b['payment_date'] ?? '').toString().compareTo((a['payment_date'] ?? '').toString()));
+    return rows;
+  }
+
   Future<List<Map<String, dynamic>>> getBillsForMonth(
       String billingMonth,
       ) async {
