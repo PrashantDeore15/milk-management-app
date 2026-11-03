@@ -13,6 +13,7 @@ import '../bills/monthly_billing_screen.dart';
 import '../customers/customer_list_screen.dart';
 import '../daily_entry/daily_milk_entry_screen.dart';
 import '../daily_entry/todays_milk_screen.dart';
+import 'home_metric_detail_screen.dart';
 import '../payments/payment_collection_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -348,8 +349,8 @@ class _HomePageState extends State<_HomePage> {
               children: [
                 _SummaryCard(title: 'Customers', value: _loadingStats ? '...' : '$_customerCount', caption: 'Active accounts', icon: Icons.people_alt_outlined, color: const Color(0xFF168AAD)),
                 _SummaryCard(title: "Today's milk", value: _loadingStats ? '...' : '${_todayMilk.toStringAsFixed(2)} L', caption: 'Delivered today', icon: Icons.water_drop_outlined, color: const Color(0xFF2A9D8F), onTap: () => _open(context, const TodaysMilkScreen())),
-                _SummaryCard(title: 'Monthly billing', value: _loadingStats ? '...' : _money(_monthlyBilling), caption: DateFormat('MMMM yyyy').format(_now), icon: Icons.receipt_long_outlined, color: const Color(0xFF7B61A8)),
-                _SummaryCard(title: 'Pending amount', value: _loadingStats ? '...' : _money(_pendingAmount), caption: 'To be collected', icon: Icons.account_balance_wallet_outlined, color: const Color(0xFFE58A23)),
+                _SummaryCard(title: 'Monthly billing', value: _loadingStats ? '...' : _money(_monthlyBilling), caption: DateFormat('MMMM yyyy').format(_now), icon: Icons.receipt_long_outlined, color: const Color(0xFF7B61A8), onTap: () => _open(context, const HomeMetricDetailScreen(metric: HomeMetric.monthlyBilling))),
+                _SummaryCard(title: 'Pending amount', value: _loadingStats ? '...' : _money(_pendingAmount), caption: 'To be collected', icon: Icons.account_balance_wallet_outlined, color: const Color(0xFFE58A23), onTap: () => _open(context, const HomeMetricDetailScreen(metric: HomeMetric.pendingAmount))),
               ],
             ),
             const SizedBox(height: 24),

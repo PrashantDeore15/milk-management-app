@@ -569,11 +569,6 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
                                               ],
                                             ),
                                           ),
-                                          TextButton(
-                                            onPressed: () =>
-                                                _showMoreProducts(customer),
-                                            child: const Text('More'),
-                                          ),
                                           FilledButton.tonal(
                                             onPressed: isDelivered ||
                                                     _saving ||
@@ -614,6 +609,20 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
                                           const Expanded(
                                             child: Text('Quantity (Liters)'),
                                           ),
+                                          TextButton(
+                                            onPressed: () =>
+                                                _showMoreProducts(customer),
+                                            style: TextButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                              ),
+                                              minimumSize: const Size(0, 40),
+                                              tapTargetSize:
+                                                  MaterialTapTargetSize.shrinkWrap,
+                                            ),
+                                            child: const Text('More'),
+                                          ),
+                                          const SizedBox(width: 6),
                                           SizedBox(
                                             width: 110,
                                             child: TextField(
