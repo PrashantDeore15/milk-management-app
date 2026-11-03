@@ -67,28 +67,40 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
     await _generateBills();
   }
 
-  Future<void> _loadSavedBills() async {
+  Future<bool> _loadSavedBills({bool showError = true}) async {
     if (mounted) setState(() => _loading = true);
     try {
       final service = FirestoreDataService.instance;
       final bills = await service.getBillsForMonth(_monthKey);
-      final customers = await service.getCustomers(activeOnly: false);
+      List<Map<String, dynamic>> customers = [];
+      try {
+        customers = await service.getCustomers(activeOnly: false);
+      } catch (_) {
+        // A bills-only user can still view saved bill records.
+      }
       final byId = {for (final customer in customers) customer['id'].toString(): customer};
       final rows = bills.map<Map<String, Object?>>((bill) {
         final customer = byId[bill['customer_id']?.toString()];
-        return {...bill, 'name': customer?['name'] ?? bill['customer_name'] ?? 'Customer',
-          'mobile': customer?['mobile'] ?? '', 'address': customer?['address'] ?? '', 'milk_type': customer?['milk_type'] ?? ''};
+        return {
+          ...bill,
+          'name': customer?['name'] ?? bill['name'] ?? bill['customer_name'] ?? 'Customer',
+          'mobile': customer?['mobile'] ?? bill['mobile'] ?? '',
+          'address': customer?['address'] ?? bill['address'] ?? '',
+          'milk_type': customer?['milk_type'] ?? bill['milk_type'] ?? '',
+        };
       }).toList();
       rows.sort((a, b) => _text(a['name']).toLowerCase().compareTo(_text(b['name']).toLowerCase()));
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _bills = rows;
         _loading = false;
       });
+      return true;
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() => _loading = false);
-      _message('Could not load bills: $error');
+      if (showError) _message('Could not load bills: $error');
+      return false;
     }
   }
 
@@ -97,41 +109,78 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
     setState(() => _loading = true);
     try {
       final service = FirestoreDataService.instance;
+      if (!UserSession.can('bills', 'create') &&
+          !UserSession.can('bills', 'edit')) {
+        await _loadSavedBills();
+        return;
+      }
       final customers = await service.getCustomersForBilling();
       final start = DateFormat('yyyy-MM-dd').format(DateTime(_month.year, _month.month));
       final end = DateFormat('yyyy-MM-dd').format(DateTime(_month.year, _month.month + 1));
-      for (final customer in customers) {
-          final id = customer['id'] as String;
-          final milk = await service.getMilkEntriesForPeriod(customerId: id, startDate: start, endDate: end);
-          final extras = await service.getDailyProductsForPeriod(customerId: id, startDate: start, endDate: end);
-          final previous = await service.getPreviousBills(id, _monthKey);
-          final payment = await service.getPaymentsForPeriod(customerId: id, startDate: start, endDate: end);
-          final milkAmount = milk.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['rate'] as num?)?.toDouble() ?? 0)) + extras.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['unit_price'] as num?)?.toDouble() ?? 0));
-          final previousDue = previous.isEmpty ? 0.0 : (previous.first['final_balance'] as num?)?.toDouble() ?? 0;
-          final payments = payment.fold<double>(0, (sum, row) => sum + ((row['amount'] as num?)?.toDouble() ?? 0));
-          final rawBalance = milkAmount + _serviceCharge + previousDue - payments;
-          final balance = rawBalance > 0 ? rawBalance : 0.0;
-          final bill = <String, Object?>{
-            'id': '${id}_$_monthKey',
-            'customer_id': id,
-            'billing_month': _monthKey,
-            'milk_amount': milkAmount,
-            'service_charge': _serviceCharge,
-            'previous_due': previousDue,
-            'payments_received': payments,
-            'final_balance': balance,
-            'status': rawBalance <= 0 ? 'paid' : 'unpaid',
-            'created_at': DateTime.now().toIso8601String(),
-          };
-          bill['name'] = customer['name'] ?? 'Customer';
-          bill['mobile'] = customer['mobile'] ?? '';
-          await service.saveBill(Map<String, dynamic>.from(bill));
-      }
+      final bills = await Future.wait(customers.map((customer) async {
+        final id = customer['id'] as String;
+        final results = await Future.wait([
+          service.getMilkEntriesForPeriod(
+            customerId: id,
+            startDate: start,
+            endDate: end,
+          ),
+          service.getDailyProductsForPeriod(
+            customerId: id,
+            startDate: start,
+            endDate: end,
+          ),
+          service.getPreviousBills(id, _monthKey),
+          service.getPaymentsForPeriod(
+            customerId: id,
+            startDate: start,
+            endDate: end,
+          ),
+        ]);
+        final milk = results[0] as List<Map<String, dynamic>>;
+        final extras = results[1] as List<Map<String, dynamic>>;
+        final previous = results[2] as List<Map<String, dynamic>>;
+        final payment = results[3] as List<Map<String, dynamic>>;
+        final milkAmount =
+            milk.fold<double>(0, (sum, row) => sum +
+                ((row['quantity'] as num?)?.toDouble() ?? 0) *
+                ((row['rate'] as num?)?.toDouble() ?? 0)) +
+            extras.fold<double>(0, (sum, row) => sum +
+                ((row['quantity'] as num?)?.toDouble() ?? 0) *
+                ((row['unit_price'] as num?)?.toDouble() ?? 0));
+        final previousDue = previous.isEmpty
+            ? 0.0
+            : (previous.first['final_balance'] as num?)?.toDouble() ?? 0;
+        final payments = payment.fold<double>(0, (sum, row) =>
+            sum + ((row['amount'] as num?)?.toDouble() ?? 0));
+        final rawBalance = milkAmount + _serviceCharge + previousDue - payments;
+        final bill = <String, Object?>{
+          'id': '${id}_$_monthKey',
+          'customer_id': id,
+          'billing_month': _monthKey,
+          'milk_amount': milkAmount,
+          'service_charge': _serviceCharge,
+          'previous_due': previousDue,
+          'payments_received': payments,
+          'final_balance': rawBalance > 0 ? rawBalance : 0.0,
+          'status': rawBalance <= 0 ? 'paid' : 'unpaid',
+          'created_at': DateTime.now().toIso8601String(),
+          'name': customer['name'] ?? 'Customer',
+          'mobile': customer['mobile'] ?? '',
+        };
+        return Map<String, dynamic>.from(bill);
+      }));
+      await Future.wait(bills.map(service.saveBill));
       await _loadSavedBills();
     } catch (error) {
       if (mounted) {
         setState(() => _loading = false);
-        _message('Could not update bills: $error');
+        final savedBillsLoaded = await _loadSavedBills(showError: false);
+        if (savedBillsLoaded) {
+          _message('Showing saved bills. Could not refresh billing data: $error');
+        } else {
+          _message('Could not update or load bills: $error');
+        }
       }
     }
   }
@@ -363,7 +412,7 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
   static const _products = <(String, String, double, String)>[
     ('Cow Milk', 'cow_milk', 0, 'L'),
     ('Buffalo Milk', 'buffalo_milk', 0, 'L'),
-    ('Fresh Milk', 'fresh_milk', 0, 'L'),
+    ('Fresh Cream Milk', 'fresh_milk', 0, 'L'),
     ('Tak 500 ml', 'tak_500ml', 22, 'pack'),
     ('Dahi 100 gm', 'dahi_100', 16, 'pack'),
     ('Dahi 200 gm', 'dahi_200', 32, 'pack'),
@@ -374,7 +423,7 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
   static const _types = <String, String>{
     'cow_milk': 'Cow milk',
     'buffalo_milk': 'Buffalo milk',
-    'fresh_milk': 'Fresh milk',
+    'fresh_milk': 'Fresh cream milk',
   };
 
   String _rateKeyForCustomerType(Object? customerType) {

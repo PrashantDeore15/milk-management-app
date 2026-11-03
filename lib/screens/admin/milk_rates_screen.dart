@@ -25,7 +25,7 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
   static const _labels = {
     'cow_milk': 'Cow Milk',
     'buffalo_milk': 'Buffalo Milk',
-    'fresh_milk': 'Fresh Milk',
+    'fresh_milk': 'Fresh Cream Milk',
   };
 
   @override
@@ -112,7 +112,7 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
                         SizedBox(height: 12),
                         Text('Set extra milk item prices', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                         SizedBox(height: 5),
-                        Text('These prices are used for Cow Milk, Buffalo Milk, and Fresh Milk extra items.', style: TextStyle(color: Colors.white)),
+                        Text('These prices are used for Cow Milk, Buffalo Milk, and Fresh Cream Milk extra items.', style: TextStyle(color: Colors.white)),
                       ],
                     ),
                   ),

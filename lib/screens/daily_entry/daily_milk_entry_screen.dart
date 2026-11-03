@@ -128,7 +128,7 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
     const products = <(String, String, double, String)>[
       ('Cow Milk', 'cow_milk', 0, 'L'),
       ('Buffalo Milk', 'buffalo_milk', 0, 'L'),
-      ('Fresh Milk', 'fresh_milk', 0, 'L'),
+      ('Fresh Cream Milk', 'fresh_milk', 0, 'L'),
       ('Tak 500 ml', 'tak_500ml', 22, 'pack'),
       ('Dahi 100 gm', 'dahi_100', 16, 'pack'),
       ('Dahi 200 gm', 'dahi_200', 32, 'pack'),
@@ -707,7 +707,7 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
       case 'cow':
         return 'Cow Milk';
       case 'full_cream':
-        return 'Full Cream Milk';
+        return 'Fresh Cream Milk';
       default:
         return 'Standard Milk';
     }
