@@ -46,6 +46,49 @@ class _CustomerMonthlySummaryScreenState extends State<CustomerMonthlySummaryScr
   double get _totalLiters => _entries.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble());
   double get _bill => _entries.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['rate'] as num).toDouble()) + _products.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['unit_price'] as num).toDouble());
 
+  Future<void> _deleteEntry(Map<String, Object?> entry) async {
+    final entryDate = entry['entry_date']?.toString();
+    if (entryDate == null || entryDate.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete delivery?'),
+        content: Text('Delete the milk entry for $entryDate? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await FirestoreDataService.instance.deleteMilkEntry(
+        customerId: widget.customer.id,
+        date: entryDate,
+      );
+      await _loadMonth();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Milk entry deleted.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete milk entry: $error')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final month = DateFormat('MMMM yyyy').format(DateTime.now());
@@ -118,7 +161,24 @@ class _CustomerMonthlySummaryScreenState extends State<CustomerMonthlySummaryScr
                           leading: const CircleAvatar(backgroundColor: Color(0xFFE1F5FE), child: Icon(Icons.local_drink_outlined, color: AppTheme.primaryColor)),
                           title: Text(date == null ? entry['entry_date'] as String : DateFormat('EEE, dd MMM').format(date)),
                           subtitle: Text('${quantity.toStringAsFixed(2)} L × ₹${rate.toStringAsFixed(2)}/L'),
-                          trailing: Text(NumberFormat.currency(locale: 'en_IN', symbol: '₹').format(quantity * rate), style: const TextStyle(fontWeight: FontWeight.w600)),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(NumberFormat.currency(locale: 'en_IN', symbol: '₹').format(quantity * rate), style: const TextStyle(fontWeight: FontWeight.w600)),
+                              PopupMenuButton<String>(
+                                tooltip: 'Entry options',
+                                onSelected: (value) {
+                                  if (value == 'delete') _deleteEntry(entry);
+                                },
+                                itemBuilder: (context) => const [
+                                  PopupMenuItem<String>(
+                                    value: 'delete',
+                                    child: Text('Delete entry'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     }),

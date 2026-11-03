@@ -189,6 +189,23 @@ class FirestoreDataService {
     }, SetOptions(merge: true));
   }
 
+  Future<void> deleteMilkEntry({
+    required String customerId,
+    required String date,
+  }) async {
+    // Some existing user profiles have edit access for milk entries but do
+    // not define a separate delete permission. Treat edit access as authority
+    // to remove an entry; users with neither permission remain blocked.
+    if (!UserSession.can('milkEntries', 'delete') &&
+        !UserSession.can('milkEntries', 'edit')) {
+      throw StateError(
+        'You need edit or delete permission to delete milk entries.',
+      );
+    }
+    final ref = UserSession.collection('milk_entries');
+    await ref.doc('${customerId}_$date').delete();
+  }
+
   // --------------------------------------------------
   // CUSTOMER DAILY PRODUCTS
   // Firestore collection: customer_daily_products

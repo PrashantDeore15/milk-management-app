@@ -23,6 +23,7 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
   String _searchQuery = '';
   final Map<String, TextEditingController> _quantityControllers = {};
   final Map<String, bool> _delivered = {};
+  final Set<String> _deliverySaving = {};
 
   bool _loading = true;
   bool _saving = false;
@@ -324,6 +325,43 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
   int get _deliveredCount =>
       _customers.where((c) => _delivered[c.id] == true).length;
 
+  Future<void> _markDelivered(CustomerModel customer) async {
+    final customerId = customer.id;
+    if (_delivered[customerId] == true ||
+        _deliverySaving.contains(customerId)) {
+      return;
+    }
+
+    final quantity = double.tryParse(
+      _quantityControllers[customerId]?.text ?? '',
+    );
+    if (quantity == null || !quantity.isFinite || quantity < 0 || quantity > 100) {
+      _message('${customer.name}: enter a quantity from 0 to 100 liters.');
+      return;
+    }
+
+    setState(() => _deliverySaving.add(customerId));
+    try {
+      await FirestoreDataService.instance.saveMilkEntry({
+        'id': const Uuid().v4(),
+        'customer_id': customerId,
+        'entry_date': _dateKey,
+        'quantity': quantity,
+        'delivered': true,
+        'rate': customer.rate,
+        'notes': '',
+        'synced': false,
+      });
+
+      if (!mounted) return;
+      setState(() => _delivered[customerId] = true);
+    } catch (error) {
+      if (mounted) _message('Could not mark ${customer.name} delivered: $error');
+    } finally {
+      if (mounted) setState(() => _deliverySaving.remove(customerId));
+    }
+  }
+
   Future<void> _saveEntries() async {
     if (_saving) return;
 
@@ -353,9 +391,8 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
     try {
       for (final customer in _customers) {
         final delivered = _delivered[customer.id] ?? false;
-        final quantity = delivered
-            ? double.parse(_quantityControllers[customer.id]!.text)
-            : 0.0;
+        final quantity =
+            double.parse(_quantityControllers[customer.id]!.text);
 
         await FirestoreDataService.instance.saveMilkEntry({
           'id': const Uuid().v4(),
@@ -538,12 +575,14 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
                                             child: const Text('More'),
                                           ),
                                           FilledButton.tonal(
-                                            onPressed: () {
-                                              setState(() {
-                                                _delivered[customer.id] =
-                                                    !isDelivered;
-                                              });
-                                            },
+                                            onPressed: isDelivered ||
+                                                    _saving ||
+                                                    _deliverySaving.contains(
+                                                      customer.id,
+                                                    )
+                                                ? null
+                                                : () =>
+                                                    _markDelivered(customer),
                                             style: FilledButton.styleFrom(
                                               backgroundColor: isDelivered
                                                   ? const Color(0xFFE1F5FE)
@@ -558,7 +597,11 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
                                                   ),
                                             ),
                                             child: Text(
-                                              isDelivered
+                                              _deliverySaving.contains(
+                                                    customer.id,
+                                                  )
+                                                  ? 'Saving...'
+                                                  : isDelivered
                                                   ? 'Delivered ✓'
                                                   : 'Mark delivered',
                                             ),
@@ -577,7 +620,7 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
                                               controller:
                                                   _quantityControllers[customer
                                                       .id],
-                                              enabled: isDelivered,
+                                              enabled: !isDelivered,
                                               keyboardType:
                                                   const TextInputType.numberWithOptions(
                                                     decimal: true,
@@ -608,7 +651,9 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
                     child: SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _saving ? null : _saveEntries,
+                        onPressed: _saving || _deliverySaving.isNotEmpty
+                            ? null
+                            : _saveEntries,
                         icon: _saving
                             ? const SizedBox(
                                 height: 18,
