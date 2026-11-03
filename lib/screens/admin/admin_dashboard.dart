@@ -48,15 +48,72 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ),
       drawer: _buildDrawer(),
       body: IndexedStack(index: _selectedIndex, children: _pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people_rounded), label: 'Customers'),
-          NavigationDestination(icon: Icon(Icons.payments_outlined), selectedIcon: Icon(Icons.payments_rounded), label: 'Payments'),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long_rounded), label: 'Bills'),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: const Border(top: BorderSide(color: Color(0xFFE1EFF6))),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF16435B).withValues(alpha: .08),
+              blurRadius: 16,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: NavigationBarTheme(
+          data: NavigationBarThemeData(
+            height: 72,
+            backgroundColor: Colors.white,
+            indicatorColor: const Color(0xFFDDF4FF),
+            indicatorShape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            labelTextStyle: WidgetStateProperty.resolveWith((states) {
+              final selected = states.contains(WidgetState.selected);
+              return TextStyle(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected ? const Color(0xFF168AAD) : Colors.black54,
+              );
+            }),
+            iconTheme: WidgetStateProperty.resolveWith((states) {
+              final selected = states.contains(WidgetState.selected);
+              return IconThemeData(
+                size: 22,
+                color: selected ? const Color(0xFF168AAD) : Colors.black54,
+              );
+            }),
+          ),
+          child: NavigationBar(
+            elevation: 0,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: (index) =>
+                setState(() => _selectedIndex = index),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded),
+                label: 'Home',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.people_outline),
+                selectedIcon: Icon(Icons.people_rounded),
+                label: 'Customers',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.payments_outlined),
+                selectedIcon: Icon(Icons.payments_rounded),
+                label: 'Payments',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.receipt_long_outlined),
+                selectedIcon: Icon(Icons.receipt_long_rounded),
+                label: 'Bills',
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -288,18 +345,23 @@ class _HomePageState extends State<_HomePage> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                _SummaryCard(title: 'Customers', value: _loadingStats ? '...' : '$_customerCount', icon: Icons.people_alt_outlined),
-                _SummaryCard(title: "Today's Milk", value: _loadingStats ? '...' : '${_todayMilk.toStringAsFixed(2)} L', icon: Icons.water_drop_outlined),
-                _SummaryCard(title: 'Monthly Billing', value: _loadingStats ? '...' : _money(_monthlyBilling), icon: Icons.receipt_long_outlined),
-                _SummaryCard(title: 'Pending Amount', value: _loadingStats ? '...' : _money(_pendingAmount), icon: Icons.account_balance_wallet_outlined),
+                _SummaryCard(title: 'Customers', value: _loadingStats ? '...' : '$_customerCount', caption: 'Active accounts', icon: Icons.people_alt_outlined, color: const Color(0xFF168AAD)),
+                _SummaryCard(title: "Today's milk", value: _loadingStats ? '...' : '${_todayMilk.toStringAsFixed(2)} L', caption: 'Delivered today', icon: Icons.water_drop_outlined, color: const Color(0xFF2A9D8F)),
+                _SummaryCard(title: 'Monthly billing', value: _loadingStats ? '...' : _money(_monthlyBilling), caption: DateFormat('MMMM yyyy').format(_now), icon: Icons.receipt_long_outlined, color: const Color(0xFF7B61A8)),
+                _SummaryCard(title: 'Pending amount', value: _loadingStats ? '...' : _money(_pendingAmount), caption: 'To be collected', icon: Icons.account_balance_wallet_outlined, color: const Color(0xFFE58A23)),
               ],
             ),
             const SizedBox(height: 24),
             const Text('Quick actions', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            _QuickAction(icon: Icons.local_drink_outlined, title: 'Daily milk entry', subtitle: 'Record today’s delivery', onTap: () => _open(context, const DailyMilkEntryScreen())),
-            _QuickAction(icon: Icons.payments_outlined, title: 'Record a payment', subtitle: 'Add a customer payment', onTap: () => _open(context, const PaymentCollectionScreen())),
-            _QuickAction(icon: Icons.receipt_long_outlined, title: 'Monthly bills', subtitle: 'Review and share bills', onTap: () => _open(context, const MonthlyBillingScreen())),
+            LayoutBuilder(builder: (context, constraints) {
+              final width = (constraints.maxWidth - 12) / 2;
+              return Wrap(spacing: 12, runSpacing: 12, children: [
+                _QuickAction(width: width, icon: Icons.local_drink_outlined, title: 'Daily milk entry', subtitle: 'Record today’s delivery', color: const Color(0xFF168AAD), onTap: () => _open(context, const DailyMilkEntryScreen())),
+                _QuickAction(width: width, icon: Icons.payments_outlined, title: 'Record a payment', subtitle: 'Add a customer payment', color: const Color(0xFF2A9D8F), onTap: () => _open(context, const PaymentCollectionScreen())),
+                _QuickAction(width: width, icon: Icons.receipt_long_outlined, title: 'Monthly bills', subtitle: 'Review and share bills', color: const Color(0xFF7B61A8), onTap: () => _open(context, const MonthlyBillingScreen())),
+              ]);
+            }),
           ],
         ),
       ),
@@ -324,8 +386,10 @@ class _SummaryCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
+  final String caption;
+  final Color color;
 
-  const _SummaryCard({required this.title, required this.value, required this.icon});
+  const _SummaryCard({required this.title, required this.value, required this.caption, required this.icon, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -334,17 +398,19 @@ class _SummaryCard extends StatelessWidget {
       child: Card(
         elevation: 0,
         color: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE1EFF6))),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFFE1EFF6))),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(padding: const EdgeInsets.all(9), decoration: BoxDecoration(color: const Color(0xFFE1F5FE), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: AppTheme.primaryColor, size: 22)),
+              Container(padding: const EdgeInsets.all(9), decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: color, size: 22)),
               const SizedBox(height: 14),
-              Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold))),
               const SizedBox(height: 4),
-              Text(title, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              Text(title, style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 3),
+              Text(caption, style: const TextStyle(fontSize: 10, color: Colors.black45)),
             ],
           ),
         ),
@@ -354,27 +420,42 @@ class _SummaryCard extends StatelessWidget {
 }
 
 class _QuickAction extends StatelessWidget {
+  final double width;
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final Color color;
 
-  const _QuickAction({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  const _QuickAction({required this.width, required this.icon, required this.title, required this.subtitle, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Color(0xFFE1EFF6))),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-        leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: const Color(0xFFE1F5FE), borderRadius: BorderRadius.circular(13)), child: Icon(icon, color: AppTheme.primaryColor)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right_rounded),
-        onTap: onTap,
+    return SizedBox(
+      width: width,
+      child: Card(
+        elevation: 0,
+        color: Colors.white,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE1EFF6))),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(13)), child: Icon(icon, color: color)),
+                const Spacer(),
+                Icon(Icons.arrow_outward_rounded, size: 18, color: color),
+              ]),
+              const SizedBox(height: 14),
+              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+              const SizedBox(height: 4),
+              Text(subtitle, maxLines: 2, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+            ]),
+          ),
+        ),
       ),
     );
   }

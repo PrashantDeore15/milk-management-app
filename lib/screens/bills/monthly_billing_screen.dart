@@ -429,17 +429,12 @@ class _CustomBillDialogState extends State<_CustomBillDialog> {
       for (final item in _extraItems) item['key'] as String: (item['quantity'] as double).toString(),
     };
     final initiallySelected = initialQuantities.keys.toSet();
-    final initialDahi = initiallySelected.firstWhere(
-      (key) => key.startsWith('dahi_'),
-      orElse: () => '',
-    );
     final result = await showDialog<List<Map<String, Object?>>>(
       context: context,
       builder: (_) => _ExtraItemsPicker(
         products: _products,
         initialQuantities: initialQuantities,
         initiallySelected: initiallySelected,
-        initialDahi: initialDahi.isEmpty ? null : initialDahi,
         itemRates: widget.milkRates,
       ),
     );
@@ -615,14 +610,12 @@ class _ExtraItemsPicker extends StatefulWidget {
   final List<(String, String, double, String)> products;
   final Map<String, String> initialQuantities;
   final Set<String> initiallySelected;
-  final String? initialDahi;
   final Map<String, double> itemRates;
 
   const _ExtraItemsPicker({
     required this.products,
     required this.initialQuantities,
     required this.initiallySelected,
-    required this.initialDahi,
     required this.itemRates,
   });
 
@@ -633,7 +626,6 @@ class _ExtraItemsPicker extends StatefulWidget {
 class _ExtraItemsPickerState extends State<_ExtraItemsPicker> {
   late final Set<String> _selected;
   late final Map<String, String> _quantities;
-  String? _selectedDahi;
   String? _error;
 
   @override
@@ -641,14 +633,12 @@ class _ExtraItemsPickerState extends State<_ExtraItemsPicker> {
     super.initState();
     _selected = Set<String>.from(widget.initiallySelected);
     _quantities = Map<String, String>.from(widget.initialQuantities);
-    _selectedDahi = widget.initialDahi;
   }
 
   void _save() {
     final items = <Map<String, Object?>>[];
     for (final (label, key, listedPrice, unit) in widget.products) {
-      final isDahi = key.startsWith('dahi_');
-      if (isDahi ? key != _selectedDahi : !_selected.contains(key)) continue;
+      if (!_selected.contains(key)) continue;
       final quantity = double.tryParse(_quantities[key] ?? '') ?? 0;
       if (!quantity.isFinite || quantity <= 0) {
         setState(() => _error = 'Enter a quantity greater than zero for $label.');
@@ -723,20 +713,23 @@ class _ExtraItemsPickerState extends State<_ExtraItemsPicker> {
         ...widget.products.where((product) => product.$2.startsWith('dahi_')).map((product) {
           final (label, key, price, unit) = product;
           return Column(children: [
-            RadioListTile<String>(
+            CheckboxListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: Text(label),
               subtitle: Text('₹${price.toStringAsFixed(2)} / $unit'),
-              value: key,
-              groupValue: _selectedDahi,
-              onChanged: (value) => setState(() {
+              value: _selected.contains(key),
+              onChanged: (checked) => setState(() {
                 _error = null;
-                _selectedDahi = value;
-                if (value != null) _quantities.putIfAbsent(value, () => '');
+                if (checked == true) {
+                  _selected.add(key);
+                  _quantities.putIfAbsent(key, () => '');
+                } else {
+                  _selected.remove(key);
+                }
               }),
             ),
-            if (_selectedDahi == key) _quantityField(key, label, unit),
+            if (_selected.contains(key)) _quantityField(key, label, unit),
           ]);
         }),
       ])),
