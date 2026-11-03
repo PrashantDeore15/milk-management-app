@@ -224,7 +224,7 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
         businessPhone: '7030009085',
         businessAddress: 'Nashik',
         upiId: 'prashantsdeore15-1@oksbi',
-        payeeName: 'Atul Milk',
+        payeeName: 'Prashant Deore',
         showDailyDeliveryDetails: false,
         invoiceTitle: 'CUSTOM MILK BILL',
       );
