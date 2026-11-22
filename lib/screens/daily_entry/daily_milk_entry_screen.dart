@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
@@ -24,6 +25,7 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
   final Map<String, TextEditingController> _quantityControllers = {};
   final Map<String, bool> _delivered = {};
   final Set<String> _deliverySaving = {};
+  final Map<String, double?> _dateRateCache = {};
 
   bool _loading = true;
   bool _saving = false;
@@ -109,7 +111,19 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
     if (picked == null || !mounted) return;
 
     setState(() => _selectedDate = picked);
+    _dateRateCache.clear();
     await _loadData();
+  }
+
+  Future<double> _rateFor(CustomerModel customer) async {
+    if (!_dateRateCache.containsKey(customer.milkType)) {
+      _dateRateCache[customer.milkType] =
+          await FirestoreDataService.instance.getMilkRateForDate(
+        milkType: customer.milkType,
+        date: _dateKey,
+      );
+    }
+    return _dateRateCache[customer.milkType] ?? customer.rate;
   }
 
   Future<void> _showMoreProducts(CustomerModel customer) async {
@@ -342,13 +356,14 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
 
     setState(() => _deliverySaving.add(customerId));
     try {
+      final rate = await _rateFor(customer);
       await FirestoreDataService.instance.saveMilkEntry({
         'id': const Uuid().v4(),
         'customer_id': customerId,
         'entry_date': _dateKey,
         'quantity': quantity,
         'delivered': true,
-        'rate': customer.rate,
+        'rate': rate,
         'notes': '',
         'synced': false,
       });
@@ -390,6 +405,7 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
 
     try {
       for (final customer in _customers) {
+        final rate = await _rateFor(customer);
         final delivered = _delivered[customer.id] ?? false;
         final quantity =
             double.parse(_quantityControllers[customer.id]!.text);
@@ -400,7 +416,7 @@ class _DailyMilkEntryScreenState extends State<DailyMilkEntryScreen> {
           'entry_date': _dateKey,
           'quantity': quantity,
           'delivered': delivered,
-          'rate': customer.rate,
+          'rate': rate,
           'notes': delivered ? '' : 'Not delivered',
           'synced': false,
         });

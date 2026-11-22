@@ -1,5 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../services/firestore_data_service.dart';
@@ -21,6 +21,7 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
   };
   bool _loading = true;
   bool _saving = false;
+  DateTime _effectiveDate = DateTime.now();
 
   static const _labels = {
     'cow_milk': 'Cow Milk',
@@ -64,22 +65,19 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      if (!UserSession.can('settings', 'edit')) {
-        throw StateError('You do not have permission to edit settings.');
-      }
       final rates = {
         for (final key in _labels.keys)
           key: double.parse(_controllers[key]!.text.trim()),
       };
 
-      await UserSession.collection('settings').doc('milk_rates').set({
-        'extra_item_rates': rates,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await FirestoreDataService.instance.saveDatedMilkRates(
+        effectiveDate: DateFormat('yyyy-MM-dd').format(_effectiveDate),
+        rates: rates,
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Extra milk item rates saved.')),
+        const SnackBar(content: Text('Milk rates saved for this date and later.')),
       );
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save rates: $error')));
@@ -117,6 +115,23 @@ class _MilkRatesScreenState extends State<MilkRatesScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Rates effective from'),
+                    subtitle: Text(DateFormat('dd MMM yyyy').format(_effectiveDate)),
+                    trailing: const Icon(Icons.calendar_month),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _effectiveDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null && mounted) {
+                        setState(() => _effectiveDate = picked);
+                      }
+                    },
+                  ),
                   for (final entry in _labels.entries) ...[
                     Card(
                       elevation: 0,

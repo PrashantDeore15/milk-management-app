@@ -335,6 +335,66 @@ class FirestoreDataService {
     return result;
   }
 
+  /// Returns the base milk rate effective on [date] for a customer's milk type.
+  /// Rate changes are kept as dated snapshots so historical entries retain
+  /// their original price while future deliveries use the latest applicable rate.
+  Future<double?> getMilkRateForDate({
+    required String milkType,
+    required String date,
+  }) async {
+    final ref = _collection('settings', 'view');
+    final doc = await ref.doc('milk_rates').get();
+    final rawHistory = doc.data()?['dated_rates'];
+    if (rawHistory is! List) return null;
+
+    final rateKey = switch (milkType) {
+      'cow' => 'cow_milk',
+      'standard' || 'buffalo' => 'buffalo_milk',
+      'full_cream' => 'fresh_milk',
+      _ => null,
+    };
+    if (rateKey == null) return null;
+
+    final applicable = rawHistory.whereType<Map>().where((row) {
+      final effectiveDate = row['effective_date']?.toString();
+      return effectiveDate != null && effectiveDate.compareTo(date) <= 0;
+    }).toList()
+      ..sort((a, b) => (b['effective_date'] ?? '').toString().compareTo(
+            (a['effective_date'] ?? '').toString(),
+          ));
+
+    if (applicable.isEmpty) return null;
+    final rates = applicable.first['rates'];
+    final value = rates is Map ? rates[rateKey] : null;
+    return value is num && value > 0 ? value.toDouble() : null;
+  }
+
+  Future<void> saveDatedMilkRates({
+    required String effectiveDate,
+    required Map<String, double> rates,
+  }) async {
+    if (!UserSession.can('settings', 'edit')) {
+      throw StateError('You do not have permission to edit settings.');
+    }
+    final ref = UserSession.collection('settings').doc('milk_rates');
+    final snapshot = await ref.get();
+    final data = snapshot.data() ?? <String, dynamic>{};
+    final history = (data['dated_rates'] as List? ?? [])
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .where((row) => row['effective_date'] != effectiveDate)
+        .toList();
+    history.add({'effective_date': effectiveDate, 'rates': rates});
+    history.sort((a, b) => (a['effective_date'] ?? '').toString().compareTo(
+          (b['effective_date'] ?? '').toString(),
+        ));
+    await ref.set({
+      'dated_rates': history,
+      'extra_item_rates': rates,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   // --------------------------------------------------
   // PAYMENTS
   // --------------------------------------------------
