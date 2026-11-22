@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "426257697516",
+    "project_id": "milk-management-app-aa207",
+    "storage_bucket": "milk-management-app-aa207.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:426257697516:android:40e9e916d32af38e2b33c9",
+        "android_client_info": {
+          "package_name": "app.milk_management_system"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBbVX2Tl9p_4knAnQjJd49zQalcWjwoRMw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

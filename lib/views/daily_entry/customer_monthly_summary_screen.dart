@@ -1,0 +1,218 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import '../../core/theme/app_theme.dart';
+import '../../models/customer_models.dart';
+import '../../services/firestore_data_service.dart';
+
+class CustomerMonthlySummaryScreen extends StatefulWidget {
+  final CustomerModel customer;
+
+  const CustomerMonthlySummaryScreen({super.key, required this.customer});
+
+  @override
+  State<CustomerMonthlySummaryScreen> createState() => _CustomerMonthlySummaryScreenState();
+}
+
+class _CustomerMonthlySummaryScreenState extends State<CustomerMonthlySummaryScreen> {
+  bool _loading = true;
+  List<Map<String, Object?>> _entries = [];
+  List<Map<String, Object?>> _products = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMonth();
+  }
+
+  Future<void> _loadMonth() async {
+    final now = DateTime.now();
+    final start = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month));
+    final end = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, now.day));
+    final service = FirestoreDataService.instance;
+    final exclusiveEnd = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, now.day + 1));
+    final entries = await service.getMilkEntriesForPeriod(customerId: widget.customer.id, startDate: start, endDate: exclusiveEnd);
+    entries.sort((a, b) => (b['entry_date'] ?? '').toString().compareTo((a['entry_date'] ?? '').toString()));
+    final products = await service.getDailyProductsForPeriod(customerId: widget.customer.id, startDate: start, endDate: exclusiveEnd);
+    products.sort((a, b) => (b['entry_date'] ?? '').toString().compareTo((a['entry_date'] ?? '').toString()));
+    if (!mounted) return;
+    setState(() {
+      _entries = entries;
+      _products = products;
+      _loading = false;
+    });
+  }
+
+  double get _totalLiters => _entries.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble());
+  double get _bill => _entries.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['rate'] as num).toDouble()) + _products.fold<double>(0, (sum, entry) => sum + (entry['quantity'] as num).toDouble() * (entry['unit_price'] as num).toDouble());
+
+  Future<void> _deleteEntry(Map<String, Object?> entry) async {
+    final entryDate = entry['entry_date']?.toString();
+    if (entryDate == null || entryDate.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete delivery?'),
+        content: Text('Delete the milk entry for $entryDate? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await FirestoreDataService.instance.deleteMilkEntry(
+        customerId: widget.customer.id,
+        date: entryDate,
+      );
+      await _loadMonth();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Milk entry deleted.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete milk entry: $error')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final month = DateFormat('MMMM yyyy').format(DateTime.now());
+    return Scaffold(
+      appBar: AppBar(title: const Text('Customer Monthly Summary')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadMonth,
+              child: ListView(
+                padding: const EdgeInsets.all(18),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF81D4FA), Color(0xFF29B6F6)]),
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(backgroundColor: Colors.white, child: Text(widget.customer.name.isEmpty ? '?' : widget.customer.name[0].toUpperCase(), style: const TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold))),
+                        const SizedBox(height: 14),
+                        Text(widget.customer.name, style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text('$month · ${widget.customer.mobile}', style: const TextStyle(color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(child: _statCard('Delivered days', '${_entries.length}', Icons.check_circle_outline)),
+                      const SizedBox(width: 10),
+                      Expanded(child: _statCard('Milk delivered', '${_totalLiters.toStringAsFixed(2)} L', Icons.water_drop_outlined)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Card(
+                    elevation: 0,
+                    color: const Color(0xFFE1F5FE),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.receipt_long_outlined, color: AppTheme.primaryColor, size: 28),
+                          const SizedBox(width: 12),
+                          const Expanded(child: Text('Bill so far this month', style: TextStyle(fontWeight: FontWeight.w600))),
+                          Text(NumberFormat.currency(locale: 'en_IN', symbol: '₹').format(_bill), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Text('$month delivery history', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const SizedBox(height: 10),
+                  if (_entries.isEmpty)
+                    const Card(child: Padding(padding: EdgeInsets.all(20), child: Center(child: Text('No delivered milk recorded this month yet.'))))
+                  else
+                    ..._entries.map((entry) {
+                      final quantity = (entry['quantity'] as num).toDouble();
+                      final rate = (entry['rate'] as num).toDouble();
+                      final date = DateTime.tryParse(entry['entry_date'] as String);
+                      return Card(
+                        elevation: 0,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: Color(0xFFE1EFF6))),
+                        child: ListTile(
+                          leading: const CircleAvatar(backgroundColor: Color(0xFFE1F5FE), child: Icon(Icons.local_drink_outlined, color: AppTheme.primaryColor)),
+                          title: Text(date == null ? entry['entry_date'] as String : DateFormat('EEE, dd MMM').format(date)),
+                          subtitle: Text('${quantity.toStringAsFixed(2)} L × ₹${rate.toStringAsFixed(2)}/L'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(NumberFormat.currency(locale: 'en_IN', symbol: '₹').format(quantity * rate), style: const TextStyle(fontWeight: FontWeight.w600)),
+                              PopupMenuButton<String>(
+                                tooltip: 'Entry options',
+                                onSelected: (value) {
+                                  if (value == 'delete') _deleteEntry(entry);
+                                },
+                                itemBuilder: (context) => const [
+                                  PopupMenuItem<String>(
+                                    value: 'delete',
+                                    child: Text('Delete entry'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ..._products.map((entry) {
+                    final qty = (entry['quantity'] as num).toDouble();
+                    final price = (entry['unit_price'] as num).toDouble();
+                    final raw = (entry['product_name'] as String).replaceAll('_', ' ');
+                    final label = '${raw[0].toUpperCase()}${raw.substring(1)}';
+                    return Card(child: ListTile(
+                      title: Text('$label · ${entry['entry_date']}'),
+                      subtitle: Text('$qty ${entry['unit']} × ₹${price.toStringAsFixed(2)}'),
+                      trailing: Text(NumberFormat.currency(locale: 'en_IN', symbol: '₹').format(qty * price)),
+                    ));
+                  }),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _statCard(String label, String value, IconData icon) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE1EFF6))),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, color: AppTheme.primaryColor),
+          const SizedBox(height: 12),
+          Text(value, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+        ]),
+      ),
+    );
+  }
+}
