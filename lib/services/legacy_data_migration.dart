@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../screens/database/database_helper.dart';
-import 'user_session.dart';
+import 'package:milk_management_system/views/database/database_helper.dart';
+import 'package:milk_management_system/services/user_session.dart';
 
 /// Copies records left in the old on-device database into the signed-in
 /// user's Firestore collections. Existing cloud documents are left untouched.

@@ -1,7 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'core/theme/app_theme.dart';
-import 'screens/splash/splash_screen.dart';
+import 'views/splash/splash_screen.dart';
 
 class MilkManagementApp extends StatelessWidget {
   const MilkManagementApp({super.key});

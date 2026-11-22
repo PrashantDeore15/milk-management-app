@@ -1,5 +1,5 @@
 import '../models/customer_models.dart';
-import '../screens/database/database_helper.dart';
+import '../views/database/database_helper.dart';
 import 'firestore_data_service.dart';
 
 class CustomerCacheService {
