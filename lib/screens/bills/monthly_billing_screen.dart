@@ -150,7 +150,7 @@ class _MonthlyBillingScreenState extends State<MonthlyBillingScreen> {
                 ((row['unit_price'] as num?)?.toDouble() ?? 0));
         final previousDue = previous.isEmpty
             ? 0.0
-            : (previous.first['final_balance'] as num?)?.toDouble() ?? 0;
+            : service.unpaidPreviousDue(previous.first);
         final payments = payment.fold<double>(0, (sum, row) =>
             sum + ((row['amount'] as num?)?.toDouble() ?? 0));
         final rawBalance = milkAmount + _serviceCharge + previousDue - payments;

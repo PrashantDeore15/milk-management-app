@@ -11,6 +11,14 @@ class FirestoreDataService {
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  /// Carries forward the unpaid balance from a saved bill without repeating
+  /// that bill's one-month service charge as a previous due.
+  double unpaidPreviousDue(Map<String, dynamic> bill) {
+    final balance = (bill['final_balance'] as num?)?.toDouble() ?? 0;
+    final serviceCharge = (bill['service_charge'] as num?)?.toDouble() ?? 0;
+    return (balance - serviceCharge).clamp(0, double.infinity).toDouble();
+  }
+
   // --------------------------------------------------
   // COMMON COLLECTION AND PERMISSION HANDLER
   // --------------------------------------------------

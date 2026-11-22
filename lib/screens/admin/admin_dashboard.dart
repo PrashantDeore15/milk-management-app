@@ -289,7 +289,7 @@ class _HomePageState extends State<_HomePage> {
         final previous = await service.getPreviousBills(id, billingMonth);
         final payments = await service.getPaymentsForPeriod(customerId: id, startDate: monthStart, endDate: nextMonth);
         final extras = await service.getDailyProductsForPeriod(customerId: id, startDate: monthStart, endDate: nextMonth);
-        final previousDue = previous.isEmpty ? 0.0 : (previous.first['final_balance'] as num?)?.toDouble() ?? 0;
+        final previousDue = previous.isEmpty ? 0.0 : service.unpaidPreviousDue(previous.first);
         final extraAmount = extras.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['unit_price'] as num?)?.toDouble() ?? 0));
         final milkAmount = entries.fold<double>(0, (sum, row) => sum + ((row['quantity'] as num?)?.toDouble() ?? 0) * ((row['rate'] as num?)?.toDouble() ?? 0)) + extraAmount;
         monthlyMilk += extraAmount;
